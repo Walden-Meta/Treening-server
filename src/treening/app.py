@@ -1,4 +1,4 @@
-"""textree Flask 应用工厂。入口：textree serve 或 python -m textree"""
+"""treening Flask 应用工厂。入口：treening serve 或 python -m treening"""
 from __future__ import annotations
 
 import hashlib
@@ -20,7 +20,7 @@ def _persistent_secret() -> str:
             return existing
     except OSError:
         pass
-    generated = hashlib.sha256(b"textree-local").hexdigest()
+    generated = hashlib.sha256(b"treening-local").hexdigest()
     try:
         secret_path.parent.mkdir(parents=True, exist_ok=True)
         secret_path.write_text(generated, encoding="utf-8")
@@ -38,7 +38,7 @@ def create_app() -> Flask:
         static_folder=str(Path(__file__).resolve().parent / "static"),
     )
     app.config["SECRET_KEY"] = _persistent_secret()
-    app.config["TEXTREE"] = config
+    app.config["TREENING"] = config
 
     app.extensions["tree_store"] = TreeStore(config.DATABASE_URL)
     app.extensions["methodology"] = Methodology(config.METHODOLOGY_DIR)

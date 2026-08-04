@@ -1,4 +1,4 @@
-"""textree 树状学习 API。
+"""treening 树状学习 API。
 
 单用户本地模式：无登录墙，身份固定为 local-owner。
 服务端持有会话历史、图边、配额（可选）与 provider 任务。
@@ -224,6 +224,15 @@ def update_session(session_id: str):
     if not updated:
         return jsonify({"error": "主题不存在", "code": "tree_session_not_found"}), 404
     return jsonify({"session": updated})
+
+
+@api_bp.route("/sessions/<session_id>", methods=["DELETE"])
+def delete_session(session_id: str):
+    if not _store().delete_session(session_id, _identity()):
+        return jsonify({"error": "主题不存在", "code": "tree_session_not_found"}), 404
+    if session.get("tree_session_id") == session_id:
+        session.pop("tree_session_id", None)
+    return jsonify({"deleted": True, "session_id": session_id})
 
 
 @api_bp.route("/sessions/<session_id>/archive", methods=["POST"])
@@ -521,4 +530,3 @@ def export_session(session_id: str):
         download_name=f"{filename}.{extension}",
         max_age=0,
     )
-

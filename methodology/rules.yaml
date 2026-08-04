@@ -10,7 +10,7 @@ branch_slots:
   - id: check
     label: 验收
     kind: branch
-    placeholder: 写下你的理解，惠会和你一起检查……
+    placeholder: 写下你的理解，Treening 会和你一起检查……
   - id: followup
     label: 追问
     kind: branch

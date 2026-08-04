@@ -57,6 +57,6 @@
   }
 
   const api = { resolveFoldState };
-  global.TextreeFoldState = api;
+  global.TreeningFoldState = api;
   if (typeof module !== "undefined" && module.exports) module.exports = api;
 })(typeof globalThis !== "undefined" ? globalThis : this);

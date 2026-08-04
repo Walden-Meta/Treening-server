@@ -310,7 +310,16 @@ class TreeStore:
                 """,
                 (_now(), _now(), session_id, user_id),
             )
-        return cursor.rowcount > 0
+            return cursor.rowcount > 0
+
+    def delete_session(self, session_id: str, user_id: str) -> bool:
+        """Permanently remove one owned session and all of its graph data."""
+        with self._connection() as conn:
+            cursor = conn.execute(
+                "DELETE FROM quiz_sessions WHERE id = ? AND user_id = ?",
+                (session_id, user_id),
+            )
+            return cursor.rowcount > 0
 
     def touch_session(self, session_id: str, user_id: str) -> None:
         with self._connection() as conn:

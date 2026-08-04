@@ -1,4 +1,4 @@
-# textree 运行时依赖
+# Treening 运行时依赖
 flask>=3.1
 requests>=2.31
 python-dotenv>=1.0

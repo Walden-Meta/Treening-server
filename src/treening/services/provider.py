@@ -1,4 +1,4 @@
-"""Provider adapter for textree（树状学习）。
+"""Provider adapter for treening（树状学习）。
 
 prompt 从 methodology/ 加载（单一事实来源），v1 保持与原 quiz_provider 行为一致。
 """

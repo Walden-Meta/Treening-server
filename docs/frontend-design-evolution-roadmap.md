@@ -1,35 +1,35 @@
 ---
-id: textree-frontend-design-evolution-roadmap
+id: treening-frontend-design-evolution-roadmap
 type: project
-title: textree 前端设计与交互演进路线
+title: Treening 前端设计与交互演进路线
 level: L4
 status: draft
 confidence: project-evidence-backed
-source_scope: 当前 textree 前端源码、三档界面实测与 2026-08-03 至 2026-08-04 设计决策
-tags: [textbook-learning, textree, frontend, ui, ux, responsive, motion]
+source_scope: 当前 treening 前端源码、三档界面实测与 2026-08-03 至 2026-08-04 设计决策
+tags: [textbook-learning, treening, frontend, ui, ux, responsive, motion]
 created: 2026-08-04
 updated: 2026-08-04
 ---
 
-# textree 前端设计与交互演进路线
+# Treening 前端设计与交互演进路线
 
 ## 1. 文档目的
 
-本文档用于指导 textree 在保留原有知识树、三分支、节点阅读和扑克牌收起交互的前提下，逐步形成稳定、清晰、有辨识度的产品界面。
+本文档用于指导 Treening 在保留原有知识树、三分支、节点阅读和扑克牌收起交互的前提下，逐步形成稳定、清晰、有辨识度的产品界面。
 
 设计参考苹果与小米的共同语言，但不直接复制其组件：
 
 - 苹果式的层级、克制、空间连续性和细腻反馈；
 - 小米式的信息效率、年轻感和高饱和状态色；
-- textree 自身的树生长、路径聚焦和扑克牌收起。
+- Treening 自身的树生长、路径聚焦和扑克牌收起。
 
-目标不是让界面“更像某家公司”，而是形成属于 textree 的空间化学习体验。
+目标不是让界面“更像某家公司”，而是形成属于 Treening 的空间化学习体验。
 
 ## 2. 产品设计定位
 
 ### 2.1 核心定位
 
-textree 应从“带知识树的网页”演进为：
+Treening 应从“带知识树的网页”演进为：
 
 > 一张以路径为核心、以画布为空间、以节点为思考入口的智能学习桌面。
 
@@ -60,17 +60,17 @@ textree 应从“带知识树的网页”演进为：
 - 不用动画掩盖状态错误；
 - 不牺牲节点结构可读性来追求完整全图；
 - 不将桌面三栏简单缩小后塞进手机；
-- 不为了模仿苹果而失去 textree 的分支色和牌堆特征；
+- 不为了模仿苹果而失去 treening 的分支色和牌堆特征；
 - 不在 UI 核心版本稳定后持续进行低收益视觉微调。
 
 ## 3. 当前前端基线
 
 ### 3.1 代码边界
 
-- 页面结构：[tree.html](../src/textree/templates/tree.html)
-- 主样式：[tree.css](../src/textree/static/css/tree.css)
-- 交互、布局与渲染：[tree.js](../src/textree/static/js/tree.js)
-- 收起解析层：[fold-state.js](../src/textree/static/js/fold-state.js)
+- 页面结构：[tree.html](../src/treening/templates/tree.html)
+- 主样式：[tree.css](../src/treening/static/css/tree.css)
+- 交互、布局与渲染：[tree.js](../src/treening/static/js/tree.js)
+- 收起解析层：[fold-state.js](../src/treening/static/js/fold-state.js)
 - 收起测试：[fold-state.test.js](../tests/fold-state.test.js)
 
 当前大致规模：
@@ -283,7 +283,7 @@ font-family:
 #### 工作状态
 
 - 收缩到约 64～72px；
-- 显示 textree、当前主题、节点数量、深度；
+- 显示 treening、当前主题、节点数量、深度；
 - 将新主题和配置放到右侧；
 - 滚动、恢复主题或存在节点时进入工作状态。
 
@@ -787,7 +787,7 @@ font-family:
 - 当前路径模式可读；
 - 收起动画和逻辑正确；
 - 输入与阅读操作高效；
-- 产品具有明确的 textree 辨识度；
+- 产品具有明确的 Treening 辨识度；
 - 没有明显可访问性和性能缺陷。
 
 后续方向见 [后端工程化与高流量演进路线](./backend-evolution-roadmap.md)。
@@ -837,4 +837,3 @@ font-family:
 - 小地图在手机端应默认显示、折叠还是完全隐藏？
 - 节点完整正文主要在卡片内阅读，还是始终交给检查器？
 - 是否需要内置中文字体以保证跨平台一致性？
-

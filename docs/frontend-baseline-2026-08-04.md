@@ -4,7 +4,7 @@
 
 ## 功能基线
 
-- `node --check src/textree/static/js/tree.js`：通过。
+- `node --check src/treening/static/js/tree.js`：通过。
 - `node --test tests/fold-state.test.js`：4/4 通过。
 - 折叠解析器覆盖：祖先折叠接管、后代折叠意图保留、互不相交牌堆、无效根过滤。
 - 页面无横向滚动条：1512×982、1024×768、390×844 均通过。

@@ -1,4 +1,4 @@
-"""textree 命令行入口。"""
+"""treening 命令行入口。"""
 from __future__ import annotations
 
 import click
@@ -6,7 +6,7 @@ import click
 
 @click.group()
 def cli():
-    """textree — 一棵会生长的知识树。"""
+    """treening — 一棵会生长的知识树。"""
 
 
 @cli.command()
@@ -23,7 +23,7 @@ def serve(no_browser):
     url = f"http://{config.HOST}:{config.PORT}"
     if not no_browser:
         threading.Timer(1.0, lambda: webbrowser.open(url)).start()
-    print(f"textree → {url}  (Ctrl+C 退出)")
+    print(f"treening → {url}  (Ctrl+C 退出)")
     app.run(host=config.HOST, port=config.PORT, debug=False, use_reloader=False)
 
 

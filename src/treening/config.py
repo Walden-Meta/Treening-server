@@ -1,6 +1,6 @@
-"""textree 独立配置。
+"""treening 独立配置。
 
-优先级：环境变量 TEXTREE_* > data/settings.json > 默认值
+优先级：环境变量 TREENING_* > data/settings.json > 默认值
 """
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ _settings = _load_settings()
 
 
 def _env(key: str, default: str = "") -> str:
-    value = os.environ.get(f"TEXTREE_{key}")
+    value = os.environ.get(f"TREENING_{key}")
     if value:
         return value
     settings_value = _settings.get(key.lower())

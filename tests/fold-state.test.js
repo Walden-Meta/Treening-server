@@ -2,7 +2,7 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { resolveFoldState } = require("../src/textree/static/js/fold-state.js");
+const { resolveFoldState } = require("../src/treening/static/js/fold-state.js");
 
 const nodes = [
   { id: "root", parent_id: null },

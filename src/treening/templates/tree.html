@@ -3,25 +3,27 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>textree · 学习空间</title>
-<link rel="stylesheet" href="/static/css/tree.css?v=20260804-1">
+<title>Treening · 学习空间</title>
+<script src="/static/js/theme.js?v=20260804-1"></script>
+<link rel="stylesheet" href="/static/css/tree.css?v=20260804-19">
 </head>
 <body>
 <main class="quiz-shell">
   <section class="study-app" id="study-app">
     <header class="study-header">
       <div class="header-intro">
-        <p class="eyebrow">TEXTREE / BRANCHING STUDY</p>
+        <p class="eyebrow">TREENING / BRANCHING STUDY</p>
         <h1>让一个问题，长出自己的路径</h1>
         <p class="header-copy">每个回答固定保留三个出口：验收、追问，以及一个由你命名的其他分支。</p>
       </div>
       <div class="workspace-heading" aria-live="polite">
-        <p class="eyebrow">TEXTREE / ACTIVE WORKSPACE</p>
+        <p class="eyebrow">TREENING / ACTIVE WORKSPACE</p>
         <h2 id="workspace-title">未命名学习主题</h2>
         <p class="workspace-meta" id="workspace-meta">0 个节点 · 当前深度 0</p>
       </div>
       <div class="header-actions">
-        <span class="quota" id="quota-label">今日剩余 8 / 8</span>
+        <span class="quota" id="quota-label" hidden>今日剩余 8 / 8</span>
+        <button class="button button-quiet theme-toggle" type="button" data-theme-toggle aria-pressed="false">深夜</button>
         <button class="button" id="new-session-button" type="button">新主题</button>
         <a class="button button-quiet" href="/setup" title="调整模型配置">⚙ 配置</a>
       </div>
@@ -39,11 +41,6 @@
           <span>知识树</span>
           <span class="rail-count" id="node-count">0</span>
         </div>
-        <p class="rail-hint">节点不是消息列表，而是可以反复回到的思考入口。选中一个回答，再决定下一步往哪里长。</p>
-        <div class="rail-status">
-          <span class="status-dot"></span>
-          <span id="depth-label">当前深度 0</span>
-        </div>
         <div class="rail-legend" aria-label="分支类型">
           <span><i class="legend-dot check"></i>验收</span>
           <span><i class="legend-dot followup"></i>追问</span>
@@ -51,7 +48,7 @@
         </div>
         <section class="history-panel" aria-label="历史主题">
           <div class="history-heading">
-            <span>历史主题</span>
+            <span>学习轨迹</span>
             <button class="text-button" id="refresh-sessions-button" type="button">刷新</button>
           </div>
           <div class="session-list" id="session-list">
@@ -69,10 +66,16 @@
           <span class="context-label">当前入口</span>
           <span id="context-label">从新的问题开始</span>
           <div class="graph-toolbar" aria-label="画布控制">
+            <div class="view-switch" role="group" aria-label="知识树视图">
+              <button class="view-option is-selected" id="tree-view-button" type="button" aria-pressed="true">完整树</button>
+              <button class="view-option" id="nearby-view-button" type="button" aria-pressed="false">邻近分支</button>
+              <button class="view-option" id="path-view-button" type="button" aria-pressed="false">当前路径</button>
+            </div>
             <span id="zoom-label">100%</span>
             <button class="icon-button" id="zoom-out-button" type="button" title="缩小">−</button>
             <button class="icon-button" id="zoom-in-button" type="button" title="放大">＋</button>
             <button class="text-button" id="fit-graph-button" type="button">回到全图</button>
+            <button class="text-button canvas-undo-button" id="undo-canvas-button" type="button" title="撤销上一步画布操作 (Ctrl+Z)" disabled>↶ 撤销</button>
             <button class="text-button" id="clear-context-button" type="button" hidden>清除入口</button>
             <label class="export-control">
               <span class="sr-only">导出范围</span>
@@ -97,7 +100,6 @@
             <svg class="graph-edges" id="graph-edges" aria-hidden="true"></svg>
             <div class="graph-nodes" id="graph-nodes"></div>
           </div>
-          <div class="graph-hint" id="graph-hint">按住空格 + 滚轮缩放 · 直接拖动画布</div>
           <aside class="minimap" id="minimap" hidden aria-label="知识树总览">
             <div class="minimap-title">OVERVIEW</div>
             <svg id="minimap-svg" role="img" aria-label="知识树缩略图"></svg>
@@ -128,7 +130,6 @@
       </section>
 
       <aside class="reader-panel" id="reader-panel" aria-label="节点阅读栏">
-        <div class="reader-kicker">READING PANE</div>
         <div class="reader-empty" id="reader-empty">
           <span class="reader-empty-mark">◌</span>
           <h2>选择一个节点</h2>
@@ -137,18 +138,38 @@
         <div class="reader-view" id="reader-view" hidden>
           <div class="reader-header">
             <div>
-              <span class="reader-role" id="reader-role">惠</span>
+              <span class="reader-role" id="reader-role">Treening</span>
               <span class="reader-branch" id="reader-branch">学习回应</span>
             </div>
             <span class="reader-depth" id="reader-depth">深度 0</span>
           </div>
-          <h2 id="reader-title">节点内容</h2>
           <div class="reader-content" id="reader-content"></div>
           <div class="reader-concealed" id="reader-concealed" hidden>
             <span class="reader-concealed-label" hidden>内容已隐藏</span>
             <span class="reader-concealed-summary" id="reader-concealed-summary"></span>
             <button class="text-button" id="reader-reveal-button" type="button">显示内容</button>
           </div>
+          <section class="reader-context" id="reader-context" aria-label="节点上下文">
+            <div class="reader-context-block">
+              <span class="reader-context-label">当前路径</span>
+              <p id="reader-path">—</p>
+            </div>
+            <div class="reader-context-grid">
+              <div class="reader-context-block">
+                <span class="reader-context-label">父节点</span>
+                <p id="reader-parent">这是起点节点</p>
+              </div>
+              <div class="reader-context-block">
+                <span class="reader-context-label">后代</span>
+                <p id="reader-descendants">0 个节点</p>
+              </div>
+            </div>
+            <div class="reader-context-actions">
+              <button class="text-button" id="reader-fold-button" type="button">收起后代</button>
+              <button class="text-button" id="reader-conceal-button" type="button">隐藏内容</button>
+              <button class="text-button" id="reader-export-path-button" type="button">导出路径</button>
+            </div>
+          </section>
           <div class="reader-footer">
             <span id="reader-meta">完整文本阅读</span>
             <button class="text-button" id="reader-focus-button" type="button">定位节点</button>
@@ -159,6 +180,9 @@
   </section>
 </main>
 <script src="/static/js/fold-state.js?v=20260803-1" defer></script>
-<script src="/static/js/tree.js?v=20260804-4" defer></script>
+<script src="/static/js/view-state.js?v=20260804-3" defer></script>
+<script src="/static/js/layout-state.js?v=20260804-2" defer></script>
+<script src="/static/js/history-state.js?v=20260804-2" defer></script>
+<script src="/static/js/tree.js?v=20260804-25" defer></script>
 </body>
 </html>

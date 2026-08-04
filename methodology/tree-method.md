@@ -1,4 +1,4 @@
-# textree 方法论（树状学习法）
+# Treening 方法论（树状学习法）
 
 > 本文是应用与 textbook-learning skill 共享的方法论总纲（决策①：共享 Obsidian 契约 + 分支规则）。
 > 完整的 S×D 路由 / 认识-实践方向 / 四层深度方法论属于 skill 的 B 范围，本应用 v1 不实现，但接口预留。

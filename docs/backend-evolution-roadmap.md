@@ -1,21 +1,21 @@
 ---
-id: textree-backend-evolution-roadmap
+id: treening-backend-evolution-roadmap
 type: project
-title: textree 后端工程化与高流量演进路线
+title: Treening 后端工程化与高流量演进路线
 level: L4
 status: draft
 confidence: project-evidence-backed
-source_scope: 当前 textree 源码、已有测试与 2026-08-04 项目决策讨论
-tags: [textbook-learning, textree, backend, reliability, scalability, internship]
+source_scope: 当前 treening 源码、已有测试与 2026-08-04 项目决策讨论
+tags: [textbook-learning, treening, backend, reliability, scalability, internship]
 created: 2026-08-04
 updated: 2026-08-04
 ---
 
-# textree 后端工程化与高流量演进路线
+# Treening 后端工程化与高流量演进路线
 
 ## 1. 文档目的
 
-本文档用于指导 textree 在产品核心功能与 UI 稳定后，逐步从“单用户、本地优先应用”演进为一个具有后端工程证明力的项目。
+本文档用于指导 Treening 在产品核心功能与 UI 稳定后，逐步从“单用户、本地优先应用”演进为一个具有后端工程证明力的项目。
 
 路线的目标不是堆叠 PostgreSQL、Redis、Celery、Kubernetes 等名词，而是形成一条可验证的工程链路：
 
@@ -35,7 +35,7 @@ updated: 2026-08-04
 
 ### 2.1 当前定位
 
-textree 当前是一个本地优先的树形学习应用，核心能力包括：
+Treening 当前是一个本地优先的树形学习应用，核心能力包括：
 
 - 树形学习会话与父子节点关系；
 - 回答节点下固定的验收、追问、自定义三分支；
@@ -67,13 +67,13 @@ textree 当前是一个本地优先的树形学习应用，核心能力包括：
 
 ### 3.1 代码边界
 
-- API 路由：[api.py](../src/textree/blueprints/api.py)
-- 应用创建与依赖装配：[app.py](../src/textree/app.py)
-- 数据访问与事务：[store.py](../src/textree/services/store.py)
-- 模型 Provider：[provider.py](../src/textree/services/provider.py)
-- 学习方法规则：[methodology.py](../src/textree/services/methodology.py)
-- 导出：[exporter.py](../src/textree/services/exporter.py)
-- 节点笔记验证：[note_validator.py](../src/textree/services/note_validator.py)
+- API 路由：[api.py](../src/treening/blueprints/api.py)
+- 应用创建与依赖装配：[app.py](../src/treening/app.py)
+- 数据访问与事务：[store.py](../src/treening/services/store.py)
+- 模型 Provider：[provider.py](../src/treening/services/provider.py)
+- 学习方法规则：[methodology.py](../src/treening/services/methodology.py)
+- 导出：[exporter.py](../src/treening/services/exporter.py)
+- 节点笔记验证：[note_validator.py](../src/treening/services/note_validator.py)
 - 前端收起解析测试：[fold-state.test.js](../tests/fold-state.test.js)
 
 ### 3.2 已存在的工程能力
@@ -108,7 +108,7 @@ textree 当前是一个本地优先的树形学习应用，核心能力包括：
 
 ### 4.1 高流量不等于高价值
 
-大量静态页面访问可能主要由 CDN 处理，不能直接证明后端能力。textree 更有价值的流量是有状态业务流量：
+大量静态页面访问可能主要由 CDN 处理，不能直接证明后端能力。treening 更有价值的流量是有状态业务流量：
 
 ```text
 创建问题
@@ -785,4 +785,3 @@ Idempotency-Key: <client-generated-id>
 - 用户重复提交相同问题时应复用结果还是创建新节点？
 - 大规模树的主要使用模式是读取路径、读取子树还是浏览全树？
 - 公开部署后的隐私和数据删除要求是什么？
-

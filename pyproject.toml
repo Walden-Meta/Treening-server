@@ -3,7 +3,7 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "textree"
+name = "treening"
 version = "0.1.0"
 description = "A tree that grows knowledge - textbook-learning as a standalone local app"
 requires-python = ">=3.10"
@@ -20,11 +20,11 @@ docx = ["python-docx>=1.0"]
 dev = ["pytest>=7.0"]
 
 [project.scripts]
-textree = "textree.cli:cli"
+treening = "treening.cli:cli"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
-packages = ["textree", "textree.services", "textree.blueprints"]
+packages = ["treening", "treening.services", "treening.blueprints"]
 
 [tool.setuptools.package-data]
-textree = ["templates/*.html", "static/**/*"]
+treening = ["templates/*.html", "static/**/*"]

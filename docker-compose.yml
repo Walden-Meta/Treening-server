@@ -4,12 +4,12 @@ services:
     container_name: textree
     restart: unless-stopped
     ports:
-      - "${TEXTREE_HOST_PORT:-5001}:5000"
+      - "${TREENING_HOST_PORT:-5001}:5000"
     environment:
       # 模型（OpenAI 兼容；不填则首次访问走设置向导）
-      TEXTREE_API_KEY: ${TEXTREE_API_KEY:-}
-      TEXTREE_API_URL: ${TEXTREE_API_URL:-https://api.deepseek.com/chat/completions}
-      TEXTREE_MODEL: ${TEXTREE_MODEL:-deepseek-chat}
+      TREENING_API_KEY: ${TREENING_API_KEY:-}
+      TREENING_API_URL: ${TREENING_API_URL:-https://api.deepseek.com/chat/completions}
+      TREENING_MODEL: ${TREENING_MODEL:-deepseek-chat}
     volumes:
       - ./docker-data/textree:/app/data
     healthcheck:
