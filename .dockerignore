@@ -1,0 +1,12 @@
+.git
+data/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.env
+tests/
+docs/
+docker-data/
+*.db
