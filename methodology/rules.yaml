@@ -1,0 +1,28 @@
+# 分支规则 — 三槽位（工作台数据源）
+# 决策②：默认三槽位；工作台可改。此文件是唯一事实来源。
+max_branches: 3
+
+branch_slots:
+  - id: question
+    label: 起点问题
+    kind: root              # 仅根节点使用
+    placeholder: 输入一个你想探索的问题……
+  - id: check
+    label: 验收
+    kind: branch
+    placeholder: 写下你的理解，惠会和你一起检查……
+  - id: followup
+    label: 追问
+    kind: branch
+    placeholder: 具体想追问哪一个细节？
+  - id: custom
+    label: 其他
+    kind: branch
+    placeholder: 输入这条自定义支线想探索的内容……
+
+# 一个回答下的出口顺序（验收 → 追问 → 其他）
+branch_order: [check, followup, custom]
+
+# 旧数据兼容：correction → custom
+legacy_aliases:
+  correction: custom

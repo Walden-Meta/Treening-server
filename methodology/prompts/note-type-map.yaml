@@ -1,0 +1,21 @@
+# 树节点 → Obsidian note 类型映射
+# 决策②草案。类型枚举见 methodology/obsidian-contract.md 的 Note types 表。
+# note 模板与必需章节见 note_validator.py 的 REQUIRED_SECTIONS。
+#
+# 设计意图：
+#   - 根问题 = 尚未收敛的悬置问题（question）
+#   - 验收 = 复习 / 迁移检查点（review）—— 这是"写入门控"最贴合的节点
+#   - 追问 / 自定义 = 按内容方向判定（默认 concept，可扩展 research/decision）
+#
+# 疑问（M4 实现时定）：
+#   - 回答节点自身不独立成 note，内容并入其子节点。待验证。
+#   - status 判定：验收通过 → verified；其余 → draft。待验证。
+
+question_root: question   # 根问题 → question（parked unresolved question）
+check: review             # 验收 → review（future recall / transfer checkpoint）
+followup: concept         # 追问 → concept（按内容判）
+custom: concept           # 自定义 → concept / research / decision（按内容判）
+
+# 回答节点：默认不独立成 note
+assistant_answer:
+  export: false

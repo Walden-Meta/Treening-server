@@ -1,0 +1,4 @@
+# 可选：docx 导出
+python-docx>=1.0
+# 可选：开发测试
+pytest>=7.0

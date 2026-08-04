@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>textree · 首次配置</title>
+<link rel="stylesheet" href="/static/css/tree.css?v=20260803-3">
+</head>
+<body>
+<main class="quiz-shell">
+  <section class="access-panel" aria-labelledby="setup-title">
+    <span class="eyebrow">TEXTREE / FIRST RUN</span>
+    <h1 id="setup-title">接入你的模型服务</h1>
+    <p>textree 使用你自己的 API Key（BYO-Key），支持任何 OpenAI 兼容接口。配置只保存在本机。</p>
+
+    <form id="setup-form">
+      <label for="setup-api-key">API Key</label>
+      <input id="setup-api-key" type="password" placeholder="sk-..." autocomplete="off">
+      <p id="setup-key-hint" hidden style="margin:0 0 8px;color:var(--quiz-faint);font-size:11px"></p>
+
+      <label for="setup-api-url">接口地址</label>
+      <input id="setup-api-url" type="text" value="https://api.deepseek.com/chat/completions">
+
+      <label for="setup-model">模型</label>
+      <input id="setup-model" type="text" value="deepseek-chat">
+
+      <p class="form-error" id="setup-error" role="alert"></p>
+
+      <div class="access-row">
+        <button class="button" id="setup-test" type="button">测试连接</button>
+        <button class="button button-primary" type="submit">保存并开始</button>
+      </div>
+    </form>
+
+    <p style="margin-top:18px">
+      <a class="text-button" id="setup-back" href="/" hidden>返回学习空间</a>
+      <a class="text-button" id="setup-skip" href="/?skip=1">跳过配置，先浏览已有知识树</a>
+    </p>
+  </section>
+</main>
+<script src="/static/js/setup.js" defer></script>
+</body>
+</html>

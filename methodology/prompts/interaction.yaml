@@ -1,0 +1,7 @@
+# 交互类型引导（追加到系统提示）
+# 原 provider.INTERACTION_GUIDANCE，v1 保持行为不变。
+question: "Answer the learner's current question naturally."
+followup: "The learner wants to examine a specific detail more deeply. Preserve the established context."
+check: "The learner is responding to a checkpoint. Evaluate the reasoning gently, correct only what is needed, and continue the teaching conversation."
+correction: "The learner is challenging or correcting an earlier statement. Re-examine the claim, acknowledge uncertainty when appropriate, and explain the corrected model."
+custom: "The learner is opening a self-chosen branch. Follow the exact direction of the question while preserving the established context."
