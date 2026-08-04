@@ -12,3 +12,9 @@ services:
       TEXTREE_MODEL: ${TEXTREE_MODEL:-deepseek-chat}
     volumes:
       - ./docker-data/textree:/app/data
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:5000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s

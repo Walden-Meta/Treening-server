@@ -1,9 +1,22 @@
 """页面路由。"""
-from flask import Blueprint, redirect, render_template, request, url_for
+from flask import Blueprint, current_app, jsonify, redirect, render_template, request, url_for
 
 from ..config import config
 
 views_bp = Blueprint("views", __name__)
+
+
+@views_bp.route("/api/health")
+def health():
+    """健康检查：进程存活 + SQLite 可读。
+
+    供 Docker HEALTHCHECK / 外部探活使用，不做任何重活。
+    """
+    try:
+        current_app.extensions["tree_store"].ping()
+    except Exception:
+        return jsonify({"status": "unhealthy"}), 503
+    return jsonify({"status": "ok"})
 
 
 @views_bp.route("/")

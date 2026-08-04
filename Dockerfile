@@ -9,7 +9,10 @@ WORKDIR /app
 # 依赖层：先拷构建元数据 + 源码，利用 Docker 构建缓存
 COPY requirements.txt pyproject.toml ./
 COPY src ./src
-RUN pip install --upgrade pip \
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && pip install --upgrade pip \
     && pip install --no-cache-dir gunicorn \
     && pip install --no-cache-dir .
 
@@ -28,4 +31,5 @@ ENV TEXTREE_HOST=0.0.0.0 \
 EXPOSE 5000
 
 # 单 worker 多线程：SQLite 并发写安全 + 阻塞型 LLM 请求并发友好
-CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "1", "--threads", "4", "--timeout", "120", "textree.app:app"]
+# --max-requests：定期回收 worker，防长期运行内存缓慢增长；jitter 避免同步重启
+CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "1", "--threads", "4", "--timeout", "120", "--max-requests", "1000", "--max-requests-jitter", "100", "textree.app:app"]

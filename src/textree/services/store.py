@@ -46,6 +46,11 @@ class TreeStore:
         finally:
             conn.close()
 
+    def ping(self) -> None:
+        """轻量探活：确认 SQLite 可读（healthcheck 用）。"""
+        with self._connection() as conn:
+            conn.execute("SELECT 1").fetchone()
+
     def _ensure_schema(self) -> None:
         with self._connection() as conn:
             conn.execute("PRAGMA journal_mode = WAL")
