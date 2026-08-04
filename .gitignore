@@ -12,6 +12,9 @@ venv/
 # 运行时数据（备份 = 复制 data/ 整个目录；应用首次运行自动创建）
 data/
 
+# Docker 持久化卷（宿主机本地数据）
+docker-data/
+
 # 打包产物
 build/
 dist/
