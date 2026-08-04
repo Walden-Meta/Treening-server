@@ -14,7 +14,9 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/* \
     && pip install --upgrade pip \
     && pip install --no-cache-dir gunicorn \
-    && pip install --no-cache-dir .
+    # 可编辑安装：包留在 /app/src，BASE_DIR 正确解析为 /app
+    # （非可编辑安装会把包装进 site-packages，导致 BASE_DIR 错算、库写进容器内层）
+    && pip install --no-cache-dir -e .
 
 # 方法论：知识树规则（app 运行时会读取）
 COPY methodology ./methodology
@@ -23,10 +25,11 @@ COPY methodology ./methodology
 RUN mkdir -p /app/data
 VOLUME ["/app/data"]
 
-# gunicorn 直接用 bind 监听，不依赖 TEXTREE_HOST
-ENV TEXTREE_HOST=0.0.0.0 \
-    TEXTREE_PORT=5000 \
-    TEXTREE_DATABASE_URL=sqlite:///data/tree.db
+# gunicorn 直接用 bind 监听；显式指定库与方法论路径，不依赖 BASE_DIR 解析
+ENV TREENING_HOST=0.0.0.0 \
+    TREENING_PORT=5000 \
+    TREENING_DATABASE_URL=sqlite:////app/data/tree.db \
+    TREENING_METHODOLOGY_DIR=/app/methodology
 
 EXPOSE 5000
 

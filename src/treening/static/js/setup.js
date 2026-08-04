@@ -11,6 +11,13 @@
   const keyHint = $("#setup-key-hint");
   const backLink = $("#setup-back");
   const skipLink = $("#setup-skip");
+  const existingSection = $("#setup-existing");
+  const trialBtn = $("#setup-trial");
+
+  // 已有服务器配置 → 直接试用（亲友无需自己的 Key）
+  if (trialBtn) {
+    trialBtn.addEventListener("click", () => { location.href = "/?skip=1"; });
+  }
 
   let hasExistingKey = false;
 
@@ -27,6 +34,7 @@
         keyInput.placeholder = "留空保持当前 Key";
         backLink.hidden = false;
         skipLink.hidden = true;
+        if (existingSection) existingSection.hidden = false;
       }
     })
     .catch(() => {});

@@ -34,12 +34,18 @@
       </div>
     </form>
 
+    <div id="setup-existing" hidden style="margin-top:18px;border-top:1px solid var(--quiz-line);padding-top:14px">
+      <p class="eyebrow" style="margin:0 0 10px">没有 Key？</p>
+      <button class="button button-primary" id="setup-trial" type="button" style="width:100%">已有配置 · 直接试用 →</button>
+      <p style="margin:8px 0 0;color:var(--quiz-faint);font-size:11px">使用服务器已配置的模型服务，无需自己的 API Key</p>
+    </div>
+
     <p style="margin-top:18px">
       <a class="text-button" id="setup-back" href="/" hidden>返回学习空间</a>
       <a class="text-button" id="setup-skip" href="/?skip=1">跳过配置，先浏览已有知识树</a>
     </p>
   </section>
 </main>
-<script src="/static/js/setup.js" defer></script>
+<script src="/static/js/setup.js?v=20260804-2" defer></script>
 </body>
 </html>
