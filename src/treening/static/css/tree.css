@@ -73,6 +73,14 @@ input:focus, textarea:focus { border-color: rgba(37, 99, 235, .55); background: 
 .button-quiet { color: var(--quiz-faint); }
 .theme-toggle { min-width: 58px; }
 .setup-theme-toggle { position: absolute; top: 18px; right: 0; }
+/* 登录页：主题开关锚定到标题右端，浮在“空间”二字上方（8px 间距，不遮字）。
+   .eyebrow 置 block 使下方 inline-block 标题独占一行；
+   需显式 position:absolute —— .theme-toggle-switch 的 relative 优先级相同时
+   会覆盖 .setup-theme-toggle 的 absolute，导致开关落回正常文档流；
+   同时置 top:auto，让 bottom 定位生效。 */
+.login-heading .eyebrow { display: block; }
+.login-title { position: relative; display: inline-block; }
+.login-title .setup-theme-toggle { position: absolute; top: auto; right: 0; bottom: calc(100% + 8px); }
 
 /* 太阳/月亮滑动开关：太阳/月亮图标浮在圆球上，圆球随主题左右滑动并切换图案 */
 .theme-toggle-switch {

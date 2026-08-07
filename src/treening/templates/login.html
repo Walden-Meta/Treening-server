@@ -11,17 +11,19 @@
 <body>
 <main class="quiz-shell">
   <section class="access-panel" aria-labelledby="login-title">
-    <button class="theme-toggle theme-toggle-switch setup-theme-toggle" type="button" data-theme-toggle aria-pressed="false">
-      <span class="theme-toggle-thumb" aria-hidden="true">
-        <svg class="theme-toggle-sun" viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="12" r="4.5"/><path d="M12 2v2.6M12 19.4V22M2 12h2.6M19.4 12H22M4.9 4.9l1.9 1.9M17.2 17.2l1.9 1.9M19.1 4.9l-1.9 1.9M6.8 17.2l-1.9 1.9"/></svg>
-        <svg class="theme-toggle-moon" viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8Z"/></svg>
-      </span>
-    </button>
-
     <!-- 登录 -->
     <div id="login-view">
-      <span class="eyebrow">TREENING / SIGN IN</span>
-      <h1 id="login-title">登录学习空间</h1>
+      <div class="login-heading">
+        <span class="eyebrow">TREENING / SIGN IN</span>
+        <h1 id="login-title" class="login-title">登录学习空间
+          <button class="theme-toggle theme-toggle-switch setup-theme-toggle" type="button" data-theme-toggle aria-pressed="false">
+            <span class="theme-toggle-thumb" aria-hidden="true">
+              <svg class="theme-toggle-sun" viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="12" r="4.5"/><path d="M12 2v2.6M12 19.4V22M2 12h2.6M19.4 12H22M4.9 4.9l1.9 1.9M17.2 17.2l1.9 1.9M19.1 4.9l-1.9 1.9M6.8 17.2l-1.9 1.9"/></svg>
+              <svg class="theme-toggle-moon" viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8Z"/></svg>
+            </span>
+          </button>
+        </h1>
+      </div>
       <p>使用你的账号进入知识树。</p>
       <form id="login-form">
         <label for="login-username">用户名</label>
