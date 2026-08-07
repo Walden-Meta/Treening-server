@@ -22,7 +22,7 @@ RUN apt-get update \
 COPY methodology ./methodology
 
 # 操作手册：左上角 logo 下载的 PDF（/manual 路由）
-COPY docs ./docs
+COPY docs/Treening-操作手册.pdf ./docs/
 
 # 运行时数据：SQLite + settings.json + secret，用卷持久化
 RUN mkdir -p /app/data

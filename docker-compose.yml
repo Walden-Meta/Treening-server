@@ -1,5 +1,6 @@
 services:
   textree:
+    image: textree-server-textree:latest
     build: .
     container_name: textree
     restart: unless-stopped
