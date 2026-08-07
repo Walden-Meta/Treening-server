@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Treening · 管理员</title>
+<link rel="icon" type="image/png" href="/static/img/logo.png">
+<script src="/static/js/theme.js?v=20260807-08"></script>
+<link rel="stylesheet" href="/static/css/tree.css?v=20260807-12">
+<style>
+  .admin-shell { max-width: 860px; margin: 0 auto; padding: 28px 20px 60px; }
+  .admin-card { border: 1px solid var(--quiz-line); border-radius: 14px; padding: 18px 20px; margin-bottom: 18px; }
+  .admin-card h2 { margin: 0 0 6px; font-size: 17px; }
+  .admin-card .hint { margin: 0 0 14px; color: var(--quiz-faint); font-size: 12px; line-height: 1.6; }
+  .toggle-row { display: flex; align-items: center; gap: 10px; }
+  .switch { position: relative; width: 44px; height: 24px; flex: 0 0 auto; }
+  .switch input { opacity: 0; width: 0; height: 0; }
+  .slider { position: absolute; inset: 0; background: var(--quiz-line); border-radius: 24px; transition: .18s; cursor: pointer; }
+  .slider::before { content: ""; position: absolute; width: 18px; height: 18px; left: 3px; top: 3px; background: #fff; border-radius: 50%; transition: .18s; }
+  .switch input:checked + .slider { background: var(--quiz-accent, #3b82f6); }
+  .switch input:checked + .slider::before { transform: translateX(20px); }
+  table.users { width: 100%; border-collapse: collapse; font-size: 13px; }
+  table.users th, table.users td { text-align: left; padding: 8px 8px; border-bottom: 1px solid var(--quiz-line); vertical-align: middle; }
+  table.users th { font-size: 11px; text-transform: uppercase; color: var(--quiz-faint); font-weight: 600; }
+  .role-badge { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 11px; }
+  .role-admin { background: rgba(59,130,246,.14); color: #2563eb; }
+  .role-user { background: rgba(100,116,139,.12); color: var(--quiz-faint); }
+  .off-badge { color: #dc2626; font-size: 11px; }
+  .status-dot { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:6px; vertical-align:middle; }
+  .dot-online { background:#22c55e; }
+  .dot-offline { background:#94a3b8; }
+  .dot-disabled { background:#dc2626; }
+  .ip-sub { color:var(--quiz-faint); font-size:11px; margin-top:2px; }
+  .create-row { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr 100px auto; gap: 8px; margin-top: 10px; }
+  @media (max-width: 760px) { .create-row { grid-template-columns: 1fr 1fr; } }
+  @media (max-width: 480px) { .create-row { grid-template-columns: 1fr; } }
+  .create-row input, .create-row select { padding: 8px 10px; border: 1px solid var(--quiz-line); border-radius: 10px; background: var(--quiz-bg,#fff); color: var(--quiz-text); font: inherit; font-size: 13px; }
+  .email-cell { color: var(--quiz-faint); font-size: 12px; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .mini-btn { padding: 4px 10px; font-size: 12px; border: 1px solid var(--quiz-line); border-radius: 8px; background: transparent; color: var(--quiz-text); cursor: pointer; }
+  .mini-btn:hover { border-color: var(--quiz-accent, #3b82f6); color: var(--quiz-accent, #3b82f6); }
+  .mini-btn.danger:hover { border-color: #dc2626; color: #dc2626; }
+  .form-error { min-height: 18px; margin: 6px 0 0; font-size: 12px; }
+</style>
+</head>
+<body>
+<main class="admin-shell">
+  <div class="admin-head" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px">
+    <h1 style="margin:0;font-size:20px">管理员面板</h1>
+    <div style="display:flex;gap:8px">
+      <button class="theme-toggle theme-toggle-switch" type="button" data-theme-toggle aria-pressed="false">
+        <span class="theme-toggle-thumb" aria-hidden="true">
+          <svg class="theme-toggle-sun" viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="12" r="4.5"/><path d="M12 2v2.6M12 19.4V22M2 12h2.6M19.4 12H22M4.9 4.9l1.9 1.9M17.2 17.2l1.9 1.9M19.1 4.9l-1.9 1.9M6.8 17.2l-1.9 1.9"/></svg>
+          <svg class="theme-toggle-moon" viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8Z"/></svg>
+        </span>
+      </button>
+      <a class="button button-quiet" href="/">返回学习空间</a>
+    </div>
+  </div>
+
+  <section class="admin-card">
+    <h2>开放注册</h2>
+    <p class="hint">开启后登录页出现注册入口，新访客可自助创建普通用户账号。关闭后只能由你在此手动添加。</p>
+    <div class="toggle-row">
+      <label class="switch">
+        <input type="checkbox" id="open-reg-toggle">
+        <span class="slider"></span>
+      </label>
+      <span id="open-reg-state" style="font-size:13px">读取中…</span>
+    </div>
+    <p class="form-error" id="settings-error" role="alert"></p>
+  </section>
+
+  <section class="admin-card">
+    <h2>邮件服务（忘记密码用）</h2>
+    <p class="hint">用于向用户发送密码重置邮件。QQ 邮箱需先在「设置 → 账户 → 开启 POP3/SMTP」生成<b>授权码</b>，此处填授权码而非登录密码。</p>
+    <div style="display:grid;grid-template-columns:2fr 1fr 1fr;gap:8px;margin-bottom:8px">
+      <input id="smtp-host" placeholder="SMTP 服务器（如 smtp.qq.com）">
+      <input id="smtp-port" type="number" placeholder="端口（QQ 用 465）">
+      <label class="toggle-row" style="font-size:13px;cursor:pointer;margin:0">
+        <input type="checkbox" id="smtp-ssl" checked style="width:16px;height:16px"> SSL 直连
+      </label>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:8px">
+      <input id="smtp-username" placeholder="邮箱账号（如 1827754400@qq.com）">
+      <input id="smtp-password" type="password" placeholder="授权码（留空保持不变）" autocomplete="off">
+      <input id="smtp-from" placeholder="发件人名称（默认 Treening）">
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <input id="smtp-test-email" placeholder="测试收件邮箱（你自己的）" style="flex:1;min-width:200px">
+      <button class="mini-btn" id="smtp-test-btn" type="button">发送测试邮件</button>
+      <button class="button" id="smtp-save-btn" type="button">保存配置</button>
+    </div>
+    <p class="form-error" id="smtp-error" role="alert"></p>
+  </section>
+
+  <section class="admin-card">
+    <h2>用户管理</h2>
+    <p class="hint">共 <span id="user-count">0</span> 位用户 <span id="online-count"></span>。最近活跃为 5 分钟内登录或操作过；删除用户会同时清空其全部学习数据。</p>
+    <div style="overflow-x:auto">
+      <table class="users">
+        <thead>
+          <tr>
+            <th>用户名</th><th>角色</th><th>状态</th><th>邮箱</th><th>主题</th><th>节点</th><th>最近活跃</th><th>最近登录</th><th>操作</th>
+          </tr>
+        </thead>
+        <tbody id="user-table-body"></tbody>
+      </table>
+    </div>
+    <p class="form-error" id="users-error" role="alert"></p>
+    <div class="create-row">
+      <input id="new-username" type="text" maxlength="20" placeholder="用户名" autocomplete="off">
+      <input id="new-password" type="password" minlength="8" maxlength="64" placeholder="初始密码（8-64位）" autocomplete="new-password">
+      <input id="new-password2" type="password" minlength="8" maxlength="64" placeholder="确认密码" autocomplete="new-password">
+      <input id="new-email" type="email" maxlength="254" placeholder="邮箱（选填）" autocomplete="off">
+      <select id="new-role">
+        <option value="user">普通用户</option>
+        <option value="admin">管理员</option>
+      </select>
+      <button class="button" id="create-user-btn" type="button">创建用户</button>
+    </div>
+  </section>
+</main>
+<script src="/static/js/admin.js" defer></script>
+</body>
+</html>

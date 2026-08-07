@@ -106,6 +106,31 @@ def _mermaid(nodes: list[dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
+_DECON_LABELS = (
+    ("contradiction", "矛盾论 · 认识拆解"),
+    ("practice", "实践论 · 行动指向"),
+    ("check_question", "问题 · 验收"),
+    ("reflect_question", "问题 · 反思"),
+    ("inspire_question", "问题 · 启发"),
+)
+
+
+def _deconstruction_blocks(node: dict[str, Any]) -> list[tuple[str, str]]:
+    """Extract non-empty 拆解 blocks (矛盾论/实践论/三问) from a node.
+
+    Blocks live in assistant node metadata. Empty or missing entries are
+    skipped so honest "现阶段不需要行动" responses do not leave a bare label.
+    """
+    metadata = node.get("metadata")
+    if not isinstance(metadata, dict):
+        return []
+    return [
+        (label, str(metadata.get(key, "")).strip())
+        for key, label in _DECON_LABELS
+        if metadata.get(key)
+    ]
+
+
 def _title(session: dict[str, Any]) -> str:
     return (session.get("title") or session.get("root_question") or "未命名学习主题").strip()[:120]
 
@@ -139,6 +164,12 @@ def render_markdown(session: dict[str, Any], nodes: list[dict[str, Any]], scope:
             str(node.get("content", "")).strip(),
             "",
         ])
+        blocks = _deconstruction_blocks(node)
+        if blocks:
+            lines.extend(["**拆解**", ""])
+            for label, text in blocks:
+                lines.append(f"- **{label}**：{text}")
+            lines.append("")
     return "\n".join(lines).rstrip() + "\n"
 
 
@@ -154,6 +185,16 @@ def render_text(session: dict[str, Any], nodes: list[dict[str, Any]], scope: str
         *_tree_lines(nodes),
         "",
     ]
+    lines.append("")
+    for node in nodes:
+        blocks = _deconstruction_blocks(node)
+        if not blocks:
+            continue
+        branch = BRANCH_LABELS.get(_branch(node), "学习")
+        lines.append(f"[拆解 · {branch}]")
+        for label, text in blocks:
+            lines.append(f"  {label}：{text}")
+        lines.append("")
     return "\n".join(lines)
 
 
@@ -178,6 +219,18 @@ def render_docx(session: dict[str, Any], nodes: list[dict[str, Any]], scope: str
         role = "提问" if node.get("role") == "user" else "回答"
         document.add_heading(f"{index}. {role} · {branch}", level=min(9, depths[node["id"]] + 2))
         document.add_paragraph(str(node.get("content", "")).strip())
+        blocks = _deconstruction_blocks(node)
+        if blocks:
+            paragraph = document.add_paragraph()
+            paragraph.paragraph_format.left_indent = Pt(12)
+            run = paragraph.add_run("拆解")
+            run.bold = True
+            for label, text in blocks:
+                item = document.add_paragraph(style="List Bullet")
+                item.paragraph_format.left_indent = Pt(24)
+                label_run = item.add_run(f"{label}：")
+                label_run.bold = True
+                item.add_run(text)
     output = BytesIO()
     document.save(output)
     return output.getvalue()

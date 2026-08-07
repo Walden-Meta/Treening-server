@@ -11,7 +11,8 @@ def cli():
 
 @cli.command()
 @click.option("--no-browser", is_flag=True, help="不自动打开浏览器")
-def serve(no_browser):
+@click.option("--debug", "debug_mode", is_flag=True, help="以调试模式运行（可断点，无需手动重启）")
+def serve(no_browser, debug_mode):
     """启动本地服务并打开浏览器。"""
     import threading
     import webbrowser
@@ -24,7 +25,9 @@ def serve(no_browser):
     if not no_browser:
         threading.Timer(1.0, lambda: webbrowser.open(url)).start()
     print(f"treening → {url}  (Ctrl+C 退出)")
-    app.run(host=config.HOST, port=config.PORT, debug=False, use_reloader=False)
+    # debug 模式不开 reloader：reloader 会起子进程导致调试器挂不上，
+    # 且浏览器刷新即可拿到最新模板/静态文件，本应用模板渲染均在请求期进行。
+    app.run(host=config.HOST, port=config.PORT, debug=debug_mode, use_reloader=False)
 
 
 @cli.command()

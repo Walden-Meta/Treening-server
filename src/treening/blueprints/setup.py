@@ -1,15 +1,36 @@
-"""首次运行向导 API（BYO-Key 配置）。"""
+"""首次运行向导 API（BYO-Key 配置）。
+
+全局配置（API Key / 地址 / 模型）由管理员维护；
+个性化配置（人设 / 命名 / 拆解开关）按用户隔离，每个登录用户管理自己的。
+"""
 from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, current_app, jsonify, request, session
 
-from ..config import config
-from ..services import settings
+from ..config import (
+    LAYOUT_PREFS_DEFAULTS,
+    LAYOUT_PREFS_RANGES,
+    config,
+    layout_prefs_for,
+)
+from ..services import auth, settings
 from ..services.provider import TreeProvider
 
 setup_bp = Blueprint("setup", __name__, url_prefix="/api/setup")
+
+
+def _store():
+    return current_app.extensions["tree_store"]
+
+
+def _current_user() -> dict | None:
+    """当前登录用户（访问守卫已保证 /api/setup* 需登录）。"""
+    user_id = session.get("user_id")
+    if not user_id:
+        return None
+    return _store().get_user_by_id(user_id)
 
 
 def _mask_key(key: str) -> str:
@@ -21,8 +42,21 @@ def _mask_key(key: str) -> str:
     return f"{key[:3]}…{key[-4:]}"
 
 
+def _branch_labels_for(user_cfg: dict) -> dict[str, str]:
+    """用户命名覆盖 + rules.yaml 默认兜底（只合并非空覆盖）。"""
+    overrides = {
+        k: v.strip()
+        for k, v in (user_cfg.get("branch_labels") or {}).items()
+        if v and str(v).strip()
+    }
+    return {**config._default_branch_labels(), **overrides}
+
+
 @setup_bp.route("", methods=["GET"])
 def get_setup():
+    user = _current_user()
+    user_cfg = _store().get_user_config(user["id"]) if user else {}
+    user_cfg = user_cfg or {}
     key = config.API_KEY.strip()
     return jsonify({
         "configured": bool(key),
@@ -30,11 +64,26 @@ def get_setup():
         "api_url": config.API_URL,
         "model": config.MODEL,
         "timeout": config.PROVIDER_TIMEOUT_SECONDS,
+        "persona": user_cfg.get("persona", ""),
+        "branch_labels": _branch_labels_for(user_cfg),
+        "layout_prefs": layout_prefs_for(user_cfg),
+        "deconstruction_enabled": (
+            user_cfg.get("deconstruction_enabled")
+            or list(config.ALL_DECONSTRUCTION_BLOCKS)
+        ),
+        "all_deconstruction_blocks": list(config.ALL_DECONSTRUCTION_BLOCKS),
+        "has_users": _store().count_users() > 0,
+        "role": (user or {}).get("role", ""),
+        "is_admin": bool(user and user.get("role") == "admin"),
+        "email": (user or {}).get("email") or "",
+        "smtp_configured": settings.smtp_configured(),
     })
 
 
 @setup_bp.route("/test", methods=["POST"])
 def test():
+    if not (_current_user() or {}).get("role") == "admin":
+        return jsonify({"ok": False, "error": "仅管理员可测试全局模型配置"}), 403
     data = request.get_json(silent=True) or {}
     api_key = str(data.get("api_key", "")).strip()
     api_url = str(data.get("api_url") or config.API_URL).strip()
@@ -56,6 +105,8 @@ def test():
 
 @setup_bp.route("/save", methods=["POST"])
 def save():
+    if not (_current_user() or {}).get("role") == "admin":
+        return jsonify({"ok": False, "error": "仅管理员可修改全局模型配置"}), 403
     data = request.get_json(silent=True) or {}
     api_key = str(data.get("api_key", "")).strip()
     api_url = str(data.get("api_url") or config.API_URL).strip()
@@ -75,4 +126,148 @@ def save():
     })
     config.reload()
     return jsonify({"ok": True, "configured": True})
+
+
+@setup_bp.route("/persona", methods=["POST"])
+def save_persona():
+    """保存当前登录用户的个性化人设（按用户隔离，保存即生效）。"""
+    user = _current_user()
+    if not user:
+        return jsonify({"ok": False, "error": "未登录"}), 401
+    data = request.get_json(silent=True) or {}
+    persona = data.get("persona")
+    if not isinstance(persona, str):
+        return jsonify({"ok": False, "error": "人设内容格式不正确"}), 400
+    persona = persona.strip()
+    if len(persona) > int(config.PERSONA_MAX_CHARS):
+        return jsonify({
+            "ok": False,
+            "error": f"人设内容过长，请控制在 {config.PERSONA_MAX_CHARS} 字以内",
+        }), 400
+    _store().save_user_config(user["id"], persona=persona)
+    return jsonify({"ok": True, "persona": persona})
+
+
+@setup_bp.route("/branch-labels", methods=["POST"])
+def save_branch_labels():
+    """保存当前登录用户的分支节点命名（按用户隔离，保存即生效）。
+
+    只接受 check / followup / custom 三个分支槽位的命名；
+    缺省的键保持 rules.yaml 默认，配置页与学习空间统一读取。
+    """
+    user = _current_user()
+    if not user:
+        return jsonify({"ok": False, "error": "未登录"}), 401
+    data = request.get_json(silent=True) or {}
+    labels = data.get("branch_labels")
+    if not isinstance(labels, dict):
+        return jsonify({"ok": False, "error": "命名格式不正确"}), 400
+    cleaned: dict[str, str] = {}
+    for slot in ("check", "followup", "custom"):
+        value = labels.get(slot)
+        if value is None:
+            continue  # 缺省键保持默认，不清除已有配置
+        if not isinstance(value, str):
+            return jsonify({"ok": False, "error": f"「{slot}」命名格式不正确"}), 400
+        value = value.strip()
+        if len(value) > int(config.BRANCH_LABEL_MAX_CHARS):
+            return jsonify({
+                "ok": False,
+                "error": f"「{slot}」命名过长，请控制在 {config.BRANCH_LABEL_MAX_CHARS} 字以内",
+            }), 400
+        cleaned[slot] = value
+    _store().save_user_config(user["id"], branch_labels=cleaned)
+    return jsonify({"ok": True, "branch_labels": _branch_labels_for(
+        _store().get_user_config(user["id"]) or {}
+    )})
+
+
+@setup_bp.route("/deconstruction", methods=["POST"])
+def save_deconstruction():
+    """保存当前登录用户的拆解模块开关（按用户隔离，保存即生效）。
+
+    传空列表 = 全部关闭；只传一部分 = 关闭其余模块；
+    合法键之外的输入会被丢弃。缺省（无记录）为全部开启。
+    """
+    user = _current_user()
+    if not user:
+        return jsonify({"ok": False, "error": "未登录"}), 401
+    data = request.get_json(silent=True) or {}
+    enabled = data.get("enabled")
+    if not isinstance(enabled, list):
+        return jsonify({"ok": False, "error": "配置格式不正确"}), 400
+    valid = set(config.ALL_DECONSTRUCTION_BLOCKS)
+    cleaned = list(dict.fromkeys(k for k in enabled if k in valid))
+    _store().save_user_config(user["id"], deconstruction_enabled=cleaned)
+    return jsonify({"ok": True, "enabled": cleaned})
+
+
+@setup_bp.route("/layout-prefs", methods=["POST"])
+def save_layout_prefs():
+    """保存当前登录用户的画布布局偏好（按用户隔离，全局作用于所有主题）。
+
+    只接受 qa_gap / branch_gap / node_width / node_height 四个数值字段；
+    传入的字段做范围夹取后写入，缺省字段保持既有值。保存后前端重排立即生效。
+    """
+    user = _current_user()
+    if not user:
+        return jsonify({"ok": False, "error": "未登录"}), 401
+    data = request.get_json(silent=True) or {}
+    if not isinstance(data.get("layout_prefs"), dict):
+        return jsonify({"ok": False, "error": "配置格式不正确"}), 400
+    current = _store().get_user_config(user["id"]) or {}
+    merged = dict(current.get("layout_prefs") or {})
+    for key in LAYOUT_PREFS_DEFAULTS:
+        if key not in data["layout_prefs"]:
+            continue  # 缺省键保持既有值
+        try:
+            value = float(data["layout_prefs"][key])
+        except (TypeError, ValueError):
+            return jsonify({"ok": False, "error": f"「{key}」需为数值"}), 400
+        low, high = LAYOUT_PREFS_RANGES[key]
+        merged[key] = max(low, min(high, value))
+    if not merged:
+        return jsonify({"ok": False, "error": "没有可保存的布局参数"}), 400
+    old_effective = layout_prefs_for(current)
+    new_effective = layout_prefs_for({**current, "layout_prefs": merged})
+    changed = any(
+        abs(old_effective[k] - new_effective[k]) > 0.01
+        for k in LAYOUT_PREFS_DEFAULTS
+    )
+    _store().save_user_config(user["id"], layout_prefs=merged)
+    if changed:
+        # 全局布局规则变了：清掉所有节点的已保存 layout，让知识树完全按新参数重排。
+        cleared = _store().clear_user_layouts(user["id"])
+    else:
+        cleared = 0
+    return jsonify({
+        "ok": True,
+        "layout_prefs": layout_prefs_for(
+            _store().get_user_config(user["id"]) or {}
+        ),
+        "layout_reset": changed,
+        "layout_reset_nodes": cleared,
+    })
+
+
+@setup_bp.route("/email", methods=["POST"])
+def save_email():
+    """绑定/更换当前登录用户的邮箱（用于忘记密码找回）。
+
+    需要验证当前密码，防止被改绑到别人账号上；
+    邮箱选填，不填则清空绑定。
+    """
+    user = _current_user()
+    if not user:
+        return jsonify({"ok": False, "error": "未登录"}), 401
+    data = request.get_json(silent=True) or {}
+    password = str(data.get("password", ""))
+    email = str(data.get("email", "")).strip().lower()
+    if not auth.verify_password(user["password_hash"], password):
+        return jsonify({"ok": False, "error": "当前密码不正确"}), 400
+    email_err = auth.validate_email(email)
+    if email_err:
+        return jsonify({"ok": False, "error": email_err}), 400
+    _store().set_user_email(user["id"], email)
+    return jsonify({"ok": True, "email": email})
 

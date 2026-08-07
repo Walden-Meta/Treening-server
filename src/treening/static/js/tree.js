@@ -18,6 +18,7 @@
     concealedNodes: new Set(),
     summaryJobs: new Map(),
     layoutSaveTimers: new Map(),
+    layoutPrefs: {},  // 全局布局偏好：qa_gap / branch_gap / node_width / node_height
     canvasUndo: window.TreeningHistoryState.createUndoStack(30),
     viewTransitionTimer: null,
   };
@@ -42,19 +43,27 @@
     nodeResize: null,
     suppressClickNodeId: null,
     overviewMode: false,
+    marquee: null,                    // { pointerId, x1, y1, x2, y2 } 框选进行中
+    marqueeEl: null,                  // 框选矩形元素
+    marqueeSelection: new Set(),      // 框选选中的节点 id
   };
+
+  // 详情工作台（宽屏：田字四格 + 底部常驻提问栏）的运行时状态
+  let detailLayer = null;
+  let detailSourceNodeId = null;
+  let detailComposerWasCollapsed = true;
 
   const $ = (selector) => document.querySelector(selector);
   const DOM = {
-    studyApp: $("#study-app"), workspaceTitle: $("#workspace-title"), workspaceMeta: $("#workspace-meta"),
+    studyApp: $("#study-app"), workspaceTitle: $("#workspace-title"), railDepth: $("#rail-depth"),
     quotaLabel: $("#quota-label"),
     nodeCount: $("#node-count"),
-    contextLabel: $("#context-label"), clearContextButton: $("#clear-context-button"),
     viewport: $("#graph-viewport"), world: $("#graph-world"), edges: $("#graph-edges"),
     nodesLayer: $("#graph-nodes"), minimap: $("#minimap"), minimapSvg: $("#minimap-svg"),
     emptyState: $("#empty-state"), messageForm: $("#message-form"),
     messageInput: $("#message-input"), sendButton: $("#send-button"),
     composerHint: $("#composer-hint"), newSessionButton: $("#new-session-button"),
+    composer: $(".composer"),
     zoomLabel: $("#zoom-label"),
     sessionList: $("#session-list"), refreshSessionsButton: $("#refresh-sessions-button"),
     concealAllButton: $("#conceal-all-button"), revealAllButton: $("#reveal-all-button"),
@@ -72,9 +81,14 @@
     readerFocusButton: $("#reader-focus-button"), readerRevealButton: $("#reader-reveal-button"),
     sessionRail: $("#session-rail"), historyPanelToggle: $("#history-panel-toggle"),
     readerPanelToggle: $("#reader-panel-toggle"), panelBackdrop: $("#panel-backdrop"),
+    railCollapseToggle: $("#rail-collapse-toggle"),
+    readerDeconstruction: $("#reader-deconstruction"),
+    readerDeconContradiction: $("#reader-decon-contradiction"),
+    readerDeconPractice: $("#reader-decon-practice"),
+    readerDeconQuestions: $("#reader-decon-questions"),
   };
 
-  const BRANCH_LABELS = {
+  let BRANCH_LABELS = {
     question: "起点问题", followup: "追问", check: "验收", custom: "其他",
     correction: "其他",
   };
@@ -91,6 +105,11 @@
     async fetchJson(url, options = {}) {
       const response = await fetch(url, options);
       const body = await response.json().catch(() => ({}));
+      if (response.status === 401) {
+        // 会话失效：跳到登录页
+        window.location.href = "/login";
+        throw new Error(body.error || "请先登录");
+      }
       if (!response.ok) {
         const error = new Error(body.error || "请求失败");
         error.code = body.code; error.status = response.status; error.body = body;
@@ -122,6 +141,15 @@
     State.pendingJobs.clear();
     clearTransientOverlays();
     DOM.sendButton.disabled = false;
+  }
+
+  function setComposerActive(active) {
+    // 输入框按需出现：空树/准备提问时显示，其余时间收起
+    if (!DOM.composer) return;
+    // 详情工作台内提问栏常驻展开：不随"回答长出"等流程收起
+    if (!active && detailLayer) return;
+    DOM.composer.classList.toggle("is-collapsed", !active);
+    if (active) DOM.messageInput?.focus();
   }
 
   function setQuota(quota) {
@@ -273,6 +301,28 @@
 
   function nodeById(id) { return State.nodes.find((node) => node.id === id) || null; }
   function normalizeBranch(branch) { return branch === "correction" ? "custom" : (branch || "question"); }
+
+  // 把后端下发的自定义分支命名合并进 BRANCH_LABELS，并同步刷新静态 UI 标签。
+  function applyBranchLabels(labels) {
+    if (!labels || typeof labels !== "object") return;
+    BRANCH_LABELS = Object.assign({}, BRANCH_LABELS, labels);
+    const setText = (sel, text) => { const el = document.querySelector(sel); if (el) el.textContent = text; };
+    const label = (slot, fallback) => BRANCH_LABELS[slot] || fallback;
+    setText("#legend-check", label("check", "验收"));
+    setText("#legend-followup", label("followup", "追问"));
+    setText("#legend-custom", label("custom", "其他"));
+    setText("#eb-check", label("check", "验收"));
+    setText("#eb-followup", label("followup", "追问"));
+    setText("#eb-custom", "＋ " + label("custom", "其他"));
+    setText("#hc-check", label("check", "验收"));
+    setText("#hc-followup", label("followup", "追问"));
+    setText("#hc-custom", label("custom", "其他"));
+    // 提问框四个快捷入口保持固定完整文案，不被分支自定义短标签缩短
+    const setSuggestion = (inter, text) => { const el = document.querySelector(`.suggestion[data-interaction="${inter}"]`); if (el) el.textContent = text; };
+    setSuggestion("check", "验收理解");
+    setSuggestion("followup", "追问细节");
+    setSuggestion("custom", "＋ 其他分支");
+  }
   // UI depth is 1-based so the root is the first layer, matching the usual
   // level/height vocabulary used when explaining binary trees.
   function displayDepth(id) { return depthOf(id) + 1; }
@@ -298,10 +348,6 @@
     if (options.preservePathTarget !== true) State.pathTargetNodeId = State.currentNodeId;
     State.readerNodeId = State.currentNodeId;
     const node = nodeById(State.currentNodeId);
-    DOM.contextLabel.textContent = node
-      ? `回应「${node.content.slice(0, 42)}${node.content.length > 42 ? "…" : ""}」`
-      : "从新的问题开始";
-    DOM.clearContextButton.hidden = !node;
     renderReader();
     if (State.viewMode !== "tree") {
       markViewTransition();
@@ -324,37 +370,102 @@
     renderGraph();
     renderReader();
     if (!nodeSummary(node)) void ensureNodeSummary(node);
+    syncDetailClone();
   }
 
   function nodeSummary(node) {
     const summary = node && node.metadata && node.metadata.summary;
     if (typeof summary !== "string") return "";
-    const normalized = summary.trim();
-    if (!normalized || normalized.length > 50 || /回忆|提示|验收|追问|其他|显示|隐藏/.test(normalized)) return "";
+    let normalized = summary.trim();
+    // Defensive: strip code fences and JSON markers before showing anything.
+    // A model echoing "```json {...}" must never leak structural text into
+    // the recall hint on a concealed card.
+    const pullSummaryField = (text) => {
+      // text looks like a JSON object literal -> extract the summary-ish value.
+      const match = text.match(/"?(summary|answer_summary|recall_hint|answer)"?\s*[:=]\s*"?([^",}\s][^",}\n]*)/);
+      if (match) return match[2].trim();
+      return text;
+    };
+    if (normalized.startsWith("```")) {
+      normalized = normalized.replace(/^```[a-zA-Z]*\s*/i, "").trim();
+      const brace = normalized.indexOf("{");
+      if (brace >= 0) {
+        const close = normalized.lastIndexOf("}");
+        normalized = close > brace ? normalized.slice(brace, close + 1) : normalized.slice(brace);
+      }
+      normalized = pullSummaryField(normalized);
+    } else if (/^json\s*[{\"':]|^json\s/i.test(normalized)) {
+      normalized = normalized.replace(/^json\s*/i, "")
+        .replace(/^[{:\"']+\s*/, "");
+      normalized = pullSummaryField(normalized);
+    } else if (/^[{]/.test(normalized)) {
+      // Bare object literal (no fence, no json marker).
+      normalized = pullSummaryField(normalized);
+    }
+    normalized = normalized.replace(/^`+|`+$/g, "").replace(/\s+/g, " ").trim();
+    const stopWords = ["回忆", "提示", "显示", "隐藏", BRANCH_LABELS.check, BRANCH_LABELS.followup, BRANCH_LABELS.custom]
+      .filter(Boolean)
+      .map((s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+      .join("|");
+    if (!normalized || normalized.length > 50 || new RegExp(`^(${stopWords})$`).test(normalized)) return "";
+    if (normalized.toLowerCase().startsWith("json")) return "";
     return normalized;
+  }
+
+  // 拆解块的防御性清洗（同 nodeSummary 思路，但按块长截断而非拒绝）
+  function deconBlock(node, key, maxLen) {
+    const value = node && node.metadata && node.metadata[key];
+    if (typeof value !== "string") return "";
+    let text = value.trim();
+    const pull = (input) => {
+      // \b 防止 summary 后缀匹配进 answer_summary / question_summary
+      const match = input.match(/"?\b(contradiction|practice|check_question|reflect_question|inspire_question|summary)"?\s*[:=]\s*"?([^",}\s][^",}\n]*)/);
+      return match ? match[2].trim() : input;
+    };
+    if (text.startsWith("```")) {
+      text = text.replace(/^```[a-zA-Z]*\s*/i, "").trim();
+      const brace = text.indexOf("{");
+      if (brace >= 0) {
+        const close = text.lastIndexOf("}");
+        text = close > brace ? text.slice(brace, close + 1) : text.slice(brace);
+      }
+      text = pull(text);
+    } else if (/^json\s/i.test(text)) {
+      text = text.replace(/^json\s*/i, "").replace(/^[{:"']+\s*/, "");
+      text = pull(text);
+    } else if (/^[{]/.test(text)) {
+      text = pull(text);
+    }
+    text = text.replace(/^[`"'“”]+|[`"'“”]+$/g, "").replace(/\s+/g, " ").trim();
+    if (!text || text.toLowerCase().startsWith("json")) return "";
+    if (text.length > maxLen) text = `${text.slice(0, maxLen - 1).replace(/[，、：；: ]+$/g, "")}…`;
+    return text;
+  }
+
+  // 三问 → 预填提问栏并预设分支类型（验收→check，反思→followup，启发→custom）
+  function applyQuestionToComposer(qtype, text) {
+    if (qtype === "check") chooseInteractionType("check");
+    else if (qtype === "reflect") chooseInteractionType("followup");
+    else chooseInteractionType("custom");
+    DOM.messageInput.value = text;
+    DOM.messageInput.focus();
+    setComposerActive(true);
   }
 
   async function ensureNodeSummary(node) {
     if (!node || nodeSummary(node)) return nodeSummary(node);
-    if (State.summaryJobs.has(node.id)) return State.summaryJobs.get(node.id);
     if (!node.metadata || typeof node.metadata !== "object") node.metadata = {};
-    node.metadata.summary = "摘要生成中…";
+    // Legacy nodes may predate answer-time summaries. Give them a stable
+    // local fallback immediately instead of starting a second model request
+    // when the user hides the card.
+    const plain = String(node.content || "").replace(/[`,*_#>\[\]()]/g, "").replace(/\s+/g, " ").trim();
+    const firstSentence = plain.split(/(?<=[。！？!?；;.])\s*/).find(Boolean) || plain;
+    node.metadata.summary = firstSentence.length <= 50
+      ? firstSentence
+      : `${firstSentence.slice(0, 49).replace(/[，、：；: ]+$/g, "")}…`;
     renderGraph();
     renderReader();
-    const promise = API.generateNodeSummary(State.sessionId, node.id)
-      .then((result) => {
-        if (nodeById(node.id) !== node) return "";
-        node.metadata.summary = typeof result.summary === "string" && result.summary.trim()
-          ? result.summary.trim() : "摘要暂缺";
-        return node.metadata.summary;
-      })
-      .catch(() => {
-        if (nodeById(node.id) === node) node.metadata.summary = "摘要暂缺";
-        return "摘要暂缺";
-      })
-      .finally(() => State.summaryJobs.delete(node.id));
-    State.summaryJobs.set(node.id, promise);
-    return promise;
+    return node.metadata.summary || "暂无摘要";
   }
 
   async function ensureMissingSummaries(nodes) {
@@ -367,6 +478,7 @@
     State.concealedNodes.delete(nodeId);
     renderGraph();
     renderReader();
+    syncDetailClone();
   }
 
   function updateBulkVisibilityControls() {
@@ -526,6 +638,306 @@
       void DOM.readerView.offsetWidth;
       DOM.readerView.classList.add("is-refreshing");
     }
+    renderReaderDeconstruction(node, concealed);
+  }
+
+  // ── 详情舞台（宽屏清晰节点 + 矛盾论/实践论/三问三卡） ──
+  let detailBuildToken = 0;
+
+  function renderReaderDeconstruction(node, concealed) {
+    const section = DOM.readerDeconstruction;
+    if (!section) return;
+    // 拆解只在窄屏阅读栏回退展示；宽屏拆解由详情三卡承担，阅读栏不重复
+    const show = Boolean(node) && node.role === "assistant" && !concealed && window.innerWidth < 1360;
+    section.hidden = !show;
+    if (!show) return;
+    const contradiction = deconBlock(node, "contradiction", 100);
+    const practice = deconBlock(node, "practice", 100);
+    if (DOM.readerDeconContradiction) {
+      DOM.readerDeconContradiction.textContent = contradiction;
+      DOM.readerDeconContradiction.closest(".decon-block").hidden = !contradiction;
+    }
+    if (DOM.readerDeconPractice) {
+      DOM.readerDeconPractice.textContent = practice;
+      DOM.readerDeconPractice.closest(".decon-block").hidden = !practice;
+    }
+    if (DOM.readerDeconQuestions) {
+      const questions = [
+        { key: "check_question", qtype: "check", cls: "detail-q-check" },
+        { key: "reflect_question", qtype: "reflect", cls: "detail-q-reflect" },
+        { key: "inspire_question", qtype: "inspire", cls: "detail-q-inspire" },
+      ].map((q) => ({ ...q, text: deconBlock(node, q.key, 60) })).filter((q) => q.text);
+      DOM.readerDeconQuestions.replaceChildren();
+      for (const q of questions) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = `detail-question ${q.cls}`;
+        button.textContent = q.text;
+        button.addEventListener("click", () => applyQuestionToComposer(q.qtype, q.text));
+        DOM.readerDeconQuestions.append(button);
+      }
+      DOM.readerDeconQuestions.closest(".decon-block").hidden = questions.length === 0;
+    }
+    const any = contradiction || practice || (DOM.readerDeconQuestions && DOM.readerDeconQuestions.childElementCount > 0);
+    section.hidden = !any;
+  }
+
+  function clearDetailLayer() {
+    const wasOpen = Boolean(detailLayer);
+    detailBuildToken += 1;
+    const layer = detailLayer;
+    if (layer) {
+      detailLayer = null;
+      if (wasOpen && !layer.dataset.closing) {
+        // 直接淡出：克隆与整体工作台一起柔和消失
+        layer.dataset.closing = "1";
+        layer.animate(
+          [{ opacity: 1 }, { opacity: 0 }],
+          { duration: 240, easing: "ease-out", fill: "forwards" },
+        ).addEventListener("finish", () => { layer.remove(); });
+        window.setTimeout(() => { layer.remove(); }, 400);  // 兜底
+      } else {
+        layer.remove();
+      }
+    }
+    detailSourceNodeId = null;
+    document.body.classList.remove("is-detail-focus");
+    // 退出详情：提问栏不再让位阅读栏
+    document.body.style.removeProperty("--reader-reserve");
+    // 真正退出详情（而非重建）时：提问栏恢复为进入前的状态（有树时通常是收起态）
+    if (wasOpen && DOM.composer && detailComposerWasCollapsed) {
+      DOM.composer.classList.add("is-collapsed");
+    }
+  }
+
+  function syncDetailClone() {
+    // 隐藏/显示内容等操作会重建画布节点，但工作台克隆是独立副本：
+    // 若操作的是当前详情节点，直接重建工作台（就位，不重播 FLIP）以保持一致。
+    if (!detailLayer || !detailSourceNodeId) return;
+    const node = nodeById(detailSourceNodeId);
+    if (node) buildDetailStage(node, { fly: false });
+  }
+
+  function detailCardElement(className, tag, sub) {
+    const card = document.createElement("section");
+    card.className = `detail-card ${className}`;
+    const header = document.createElement("header");
+    const tagEl = document.createElement("span"); tagEl.className = "detail-card-tag"; tagEl.textContent = tag;
+    const subEl = document.createElement("span"); subEl.className = "detail-card-sub"; subEl.textContent = sub;
+    header.append(tagEl, subEl);
+    card.append(header);
+    const body = document.createElement("p"); body.className = "detail-card-body";
+    card.append(body);
+    return card;
+  }
+
+  // ── 详情工作台（宽屏：田字四格 + 底部常驻提问栏） ──
+  // 布局：画布区虚化后整体变成工作台；上部田字四格（矛盾论/实践论/三问/原卡片），
+  // 底部留给提问栏。原卡片格用 createNodeElement 重建，交互全保留，FLIP 从树中飞入。
+
+  function detailCell(grid, className, label, hint) {
+    const cell = document.createElement("div");
+    cell.className = `detail-cell ${className}`;
+    cell.dataset.area = className.replace("detail-cell-", "");
+    const card = detailCardElement(`detail-card-${className.replace("detail-cell-", "")}`, label, hint);
+    cell.append(card);
+    grid.append(cell);
+    return cell;
+  }
+
+  // 空拆解卡隐藏，有内容的卡自适应拉宽：按可见模块数动态重排 grid。
+  function layoutDetailGrid(grid) {
+    if (!grid) return;
+    const names = [];
+    for (const cell of grid.querySelectorAll(".detail-cell:not(.detail-cell-node)")) {
+      const card = cell.querySelector(".detail-card");
+      const empty = !card || card.classList.contains("is-empty");
+      cell.style.display = empty ? "none" : "";
+      if (!empty) names.push(cell.dataset.area || "");
+    }
+    if (!names.length) {
+      grid.style.gridTemplateAreas = '"source"';
+      grid.style.gridTemplateColumns = "minmax(0, 1fr)";
+      grid.style.gridTemplateRows = "auto";
+      return;
+    }
+    const count = names.length;
+    grid.style.gridTemplateAreas = `"${Array(count).fill("source").join(" ")}" "${names.join(" ")}"`;
+    grid.style.gridTemplateColumns = count === 1 ? "minmax(0, 1fr)" : Array(count).fill("1fr").join(" ");
+    grid.style.gridTemplateRows = "auto 1fr";
+  }
+
+  function fillDetailCards(node) {
+    if (!detailLayer || node.role !== "assistant") return;
+    if (State.concealedNodes.has(node.id)) return;  // 隐藏内容时不透出拆解
+    const contradiction = deconBlock(node, "contradiction", 100);
+    const practice = deconBlock(node, "practice", 100);
+    const questions = [
+      { key: "check_question", qtype: "check", cls: "detail-q-check" },
+      { key: "reflect_question", qtype: "reflect", cls: "detail-q-reflect" },
+      { key: "inspire_question", qtype: "inspire", cls: "detail-q-inspire" },
+    ].map((q) => ({ ...q, text: deconBlock(node, q.key, 60) })).filter((q) => q.text);
+
+    const deconCard = detailLayer.querySelector(".detail-card-decon");
+    const practiceCard = detailLayer.querySelector(".detail-card-practice");
+    const questionsCard = detailLayer.querySelector(".detail-card-questions");
+
+    if (deconCard) {
+      deconCard.querySelector(".detail-card-body").textContent = contradiction || "该节点暂无认识拆解";
+      deconCard.classList.toggle("is-empty", !contradiction);
+    }
+    if (practiceCard) {
+      practiceCard.querySelector(".detail-card-body").textContent = practice || "该节点暂无实践拆解";
+      practiceCard.classList.toggle("is-empty", !practice);
+    }
+    if (questionsCard) {
+      const ul = document.createElement("ul"); ul.className = "detail-questions";
+      for (const q of questions) {
+        const li = document.createElement("li");
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = `detail-question ${q.cls}`;
+        button.textContent = q.text;
+        button.addEventListener("click", () => applyQuestionToComposer(q.qtype, q.text));
+        li.append(button); ul.append(li);
+      }
+      questionsCard.querySelector(".detail-card-body").textContent = questions.length ? "" : "该节点暂无验收 / 反思 / 启发问题";
+      questionsCard.append(ul);
+      questionsCard.classList.toggle("is-empty", questions.length === 0);
+    }
+    layoutDetailGrid(detailLayer.querySelector(".detail-grid"));
+  }
+
+  function buildDetailStage(node, options = {}) {
+    // 首次进入详情才记录提问栏的原始收起态；重建（resize）沿用原记录
+    const firstEntry = !detailSourceNodeId && !detailLayer;
+    if (firstEntry) {
+      detailComposerWasCollapsed = Boolean(DOM.composer && DOM.composer.classList.contains("is-collapsed"));
+    }
+    clearDetailLayer();
+    Graph.marquee = null;  // 详情舞台接管画布：中断可能进行中的框选
+    if (Graph.marqueeEl) Graph.marqueeEl.style.display = "none";
+    clearMarqueeSelection();
+    const element = Graph.elements.get(node.id);
+    if (!element) return;
+    const token = ++detailBuildToken;
+    const fly = options.fly !== false;
+
+    detailSourceNodeId = node.id;
+    // 原卡片保留在虚化背景中，不做隐藏
+    document.body.classList.add("is-detail-focus");
+    if (DOM.composer) DOM.composer.classList.remove("is-collapsed");  // 提问栏常驻展开
+
+    // 舞台 = 整屏左侧区域：右侧让出阅读栏（固定抽屉），居中基准是"整个屏幕"而非画布盒子
+    const readerEl = DOM.readerPanel;
+    const readerWidth = readerEl && readerEl.classList.contains("is-panel-open")
+      ? readerEl.offsetWidth
+      : 0;
+    // 提问栏同样让位阅读栏（详情期间常驻展开）
+    document.body.style.setProperty("--reader-reserve", `${readerWidth}px`);
+    detailLayer = document.createElement("div");
+    detailLayer.className = "detail-stage";
+    detailLayer.id = "detail-stage";
+    detailLayer.style.left = "0";
+    detailLayer.style.top = "0";
+    detailLayer.style.right = `${readerWidth + 24}px`;
+    detailLayer.style.bottom = "0";
+    document.body.append(detailLayer);
+
+    // 田字四格：矛盾论 / 实践论 / 三问 / 原卡片（右下）
+    const grid = document.createElement("div");
+    grid.className = "detail-grid";
+    detailLayer.append(grid);
+    const moduleCells = [
+      detailCell(grid, "detail-cell-decon", "矛盾论", "认识拆解"),
+      detailCell(grid, "detail-cell-practice", "实践论", "行动指向"),
+      detailCell(grid, "detail-cell-questions", "问题", "验收 · 反思 · 启发"),
+    ];
+    const nodeCell = document.createElement("div");
+    nodeCell.className = "detail-cell detail-cell-node";
+    grid.append(nodeCell);
+
+    // 三条支线（树形）：源卡（左）右缘 → 三个模块左缘，画在卡片层之下
+    const branches = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    branches.setAttribute("class", "detail-branches");
+    branches.setAttribute("aria-hidden", "true");
+    detailLayer.append(branches);
+
+    // 原卡片格：createNodeElement 重建（全部交互天然可用），抽屉常驻
+    const clone = createNodeElement(node);
+    clone.classList.add("is-in-workspace", "is-detail-clone");
+    // 源卡在详情工作台内固定尺寸：不跟随外部画布的手动缩放（高度固定值由 CSS 定义）
+    // 树形排版：卡片顶部居中，水平拉长，长度 = 下方提问框宽度的 3/5
+    const composerW = Math.min(760, window.innerWidth - readerWidth - 32);
+    const sourceLength = Math.round(composerW * 3 / 5);
+    clone.style.width = `${sourceLength}px`;
+    syncNodeBranchUI(clone, node);      // 分支标签 + 抽屉三选项（标签/占用态/禁用）
+    nodeCell.append(clone);
+    if (node.role === "assistant") setBranchDrawerOpen(clone, true);
+    if (fly) {
+      clone.style.opacity = "0";  // 克隆：淡入前先隐藏
+      moduleCells.forEach((cell) => { cell.style.opacity = "0"; });  // 模块卡：飞入前先隐藏
+    }
+
+    fillDetailCards(node);
+
+    // 双 rAF：等舞台落位后取各格最终位置
+    // 三张模块卡从田字右下角（克隆卡片所在格）生发到各自格子；
+    // 只动 transform/opacity（合成器属性），不用 filter blur，保证 60Hz 流畅
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      if (token !== detailBuildToken) return;
+      // 支线：源卡（顶部）下缘 → 各可见模块上缘（扇形向下），无论是否重播 FLIP 都要画
+      const cardRect = clone.getBoundingClientRect();
+      const visibleModules = moduleCells.filter((cell) => {
+        const modCard = cell.querySelector(".detail-card");
+        return modCard && !modCard.classList.contains("is-empty");
+      });
+      visibleModules.forEach((cell) => {
+        const rect = cell.getBoundingClientRect();
+        const xEnd = rect.left + rect.width / 2;
+        const yEnd = rect.top;
+        const xStart = Math.max(cardRect.left, Math.min(cardRect.right, xEnd));
+        const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+        line.setAttribute("class", "detail-branch-line");
+        line.setAttribute("x1", String(xStart));
+        line.setAttribute("y1", String(cardRect.bottom));
+        line.setAttribute("x2", String(xEnd));
+        line.setAttribute("y2", String(yEnd));
+        branches.append(line);
+      });
+      if (!fly) return;
+      const originRect = cardRect;  // 源卡 = 生发点
+      visibleModules.forEach((cell) => {
+        const rect = cell.getBoundingClientRect();
+        const dx = originRect.left - rect.left;
+        const dy = originRect.top - rect.top;
+        const sx = originRect.width / rect.width;
+        const sy = originRect.height / rect.height;
+        cell.style.transformOrigin = "50% 50%";
+        // 带弧线的生发：从源卡微升起、逐渐清晰、轻轻落位
+        cell.animate(
+          [
+            { transform: `translate(${dx}px, ${dy}px) scale(${sx}, ${sy})`, opacity: 0 },
+            { transform: `translate(${dx * 0.5}px, ${dy * 0.5 - 14}px) scale(${sx + (1 - sx) * 0.5}, ${sy + (1 - sy) * 0.5})`, opacity: 0.96, offset: 0.5 },
+            { transform: "translate(0, 0) scale(1, 1)", opacity: 1 },
+          ],
+          { duration: 520, easing: "cubic-bezier(0.16, 1, 0.3, 1)", fill: "both" },
+        );
+      });
+      // 支线随模块落位淡入
+      branches.animate(
+        [{ opacity: 0 }, { opacity: 1 }],
+        { duration: 320, delay: 260, easing: "ease-out", fill: "both" },
+      );
+      // 克隆：直接淡入（轻微收拢放大，无位移）
+      clone.animate(
+        [
+          { opacity: 0, transform: "scale(0.96)" },
+          { opacity: 1, transform: "scale(1)" },
+        ],
+        { duration: 380, easing: "cubic-bezier(0.22, 1, 0.36, 1)", fill: "both" },
+      );
+    }));
   }
 
   const NODE_MIN_WIDTH = 220;
@@ -533,8 +945,24 @@
   const NODE_MIN_HEIGHT = 90;
   const NODE_MAX_HEIGHT = 4800;
   const NODE_DEFAULT_HEIGHT = 180;
+  const NODE_DEFAULT_WIDTH = 300;
 
   function clamp(value, min, max) { return Math.max(min, Math.min(max, value)); }
+
+  // 全局布局偏好（用户可在配置页调整；默认值须与后端 LAYOUT_PREFS_DEFAULTS 一致）
+  function layoutPrefs() {
+    const p = State.layoutPrefs || {};
+    return {
+      qa_gap: clamp(Number(p.qa_gap) || 44, 16, 200),
+      branch_gap: clamp(Number(p.branch_gap) || 82, 40, 300),
+      node_width: clamp(Number(p.node_width) || NODE_DEFAULT_WIDTH, NODE_MIN_WIDTH, NODE_MAX_WIDTH),
+      node_height: clamp(Number(p.node_height) || NODE_DEFAULT_HEIGHT, NODE_MIN_HEIGHT, NODE_MAX_HEIGHT),
+    };
+  }
+
+  function applyLayoutPrefs(prefs) {
+    State.layoutPrefs = (prefs && typeof prefs === "object") ? { ...prefs } : {};
+  }
 
   function nodeLayout(node) {
     const raw = node && node.metadata && node.metadata.layout;
@@ -555,8 +983,8 @@
     return {
       x: current ? current.x : fallbackPosition.x,
       y: current ? current.y : fallbackPosition.y,
-      width: current ? current.width : clamp(card?.offsetWidth || 300, NODE_MIN_WIDTH, NODE_MAX_WIDTH),
-      height: current ? current.height : clamp(card?.offsetHeight || NODE_DEFAULT_HEIGHT, NODE_MIN_HEIGHT, NODE_MAX_HEIGHT),
+      width: current ? current.width : clamp(card?.offsetWidth || layoutPrefs().node_width, NODE_MIN_WIDTH, NODE_MAX_WIDTH),
+      height: current ? current.height : clamp(card?.offsetHeight || layoutPrefs().node_height, NODE_MIN_HEIGHT, NODE_MAX_HEIGHT),
     };
   }
 
@@ -617,7 +1045,7 @@
   }
 
   function usefulCardHeight(card) {
-    if (!card) return NODE_DEFAULT_HEIGHT;
+    if (!card) return layoutPrefs().node_height;
     const content = card.querySelector(".node-content");
     const header = card.querySelector(".node-header");
     const actions = card.querySelector(".node-actions");
@@ -625,7 +1053,7 @@
       + (header?.offsetHeight || 0)
       + (actions?.offsetHeight || 0)
       + 2;
-    return clamp(naturalHeight || NODE_DEFAULT_HEIGHT, NODE_MIN_HEIGHT, NODE_MAX_HEIGHT);
+    return clamp(naturalHeight || layoutPrefs().node_height, NODE_MIN_HEIGHT, NODE_MAX_HEIGHT);
   }
 
   function resolveResizeOverlaps(anchorId) {
@@ -642,8 +1070,8 @@
         id: node.id,
         x: position.x,
         y: position.y,
-        width: layout?.width || element.offsetWidth || 300,
-        height: layout?.height || card.offsetHeight || NODE_DEFAULT_HEIGHT,
+        width: layout?.width || element.offsetWidth || layoutPrefs().node_width,
+        height: layout?.height || card.offsetHeight || layoutPrefs().node_height,
       };
     });
     const result = window.TreeningLayoutState.resolveOverlaps(geometry, anchorId, { gap: 40 });
@@ -681,10 +1109,10 @@
   function applyNodeLayoutStyle(node, element) {
     const layout = nodeLayout(node);
     const card = element.querySelector(".node-card");
-    element.style.width = `${layout ? layout.width : 300}px`;
+    element.style.width = `${layout ? layout.width : layoutPrefs().node_width}px`;
     // Keep a stable card frame even before the user manually resizes it.
     // Expanding should only change what is visible inside this frame.
-    card.style.height = `${layout ? layout.height : NODE_DEFAULT_HEIGHT}px`;
+    card.style.height = `${layout ? layout.height : layoutPrefs().node_height}px`;
   }
 
   let _edgesRenderQueued = false;
@@ -722,14 +1150,27 @@
   }
 
   function beginNodeDrag(event, node, card) {
+    if (detailSourceNodeId) return;  // 详情工作台脱离画布自由度：禁拖拽
     if (event.button !== 0 || event.target.closest("button, .node-resize-handle")) return;
     const position = Graph.positions.get(node.id);
     if (!position) return;
     const beforeSnapshot = captureCanvasSnapshot();
     const layout = setNodeLayout(node, layoutSnapshot(node, position));
+    // 框选组拖拽：按下的节点在选中集内 → 记录整组初始位置，拖动时整组平移（相对位置不变）
+    let group = null;
+    if (Graph.marqueeSelection.size > 0 && Graph.marqueeSelection.has(node.id)) {
+      const foldedAway = Graph.model?.foldState?.foldedAway || new Set();
+      group = [];
+      for (const id of Graph.marqueeSelection) {
+        const memberPos = Graph.positions.get(id);
+        if (!memberPos || foldedAway.has(id)) continue;
+        group.push({ id, x: memberPos.x, y: memberPos.y });
+      }
+      if (group.length > 1) DOM.studyApp?.classList.add("is-group-dragging");
+    }
     Graph.nodeDrag = {
       node, card, pointerId: event.pointerId, startX: event.clientX, startY: event.clientY,
-      originX: layout.x, originY: layout.y, moved: false, beforeSnapshot,
+      originX: layout.x, originY: layout.y, moved: false, beforeSnapshot, group,
     };
     card.setPointerCapture?.(event.pointerId);
     card.classList.add("is-node-dragging");
@@ -737,12 +1178,17 @@
   }
 
   function beginNodeResize(event, node, card) {
+    if (detailSourceNodeId) return;  // 详情工作台脱离画布自由度：禁缩放
     if (event.button !== 0) return;
     const beforeSnapshot = captureCanvasSnapshot();
     const layout = setNodeLayout(node, layoutSnapshot(node));
+    const pos = Graph.positions.get(node.id);
     Graph.nodeResize = {
       node, card, pointerId: event.pointerId, startX: event.clientX, startY: event.clientY,
       originWidth: layout.width, originHeight: layout.height, moved: false, beforeSnapshot,
+      // 视觉左上角锚点：resize 时左上角保持不动，只拉右下角
+      anchorX: pos.x - layout.width / 2,
+      anchorY: pos.y - layout.height / 2,
     };
     card.setPointerCapture?.(event.pointerId);
     card.classList.add("is-node-resizing");
@@ -757,6 +1203,29 @@
       if (!drag.moved && Math.hypot(dx, dy) < 4) return;
       drag.moved = true;
       Graph.suppressClickNodeId = drag.node.id;
+      // 整组平移：所有选中节点共享同一位移，严格保持相对位置；
+      // 钳制按"组的整体边界"计算，避免边缘节点撞边界导致组内错位
+      if (drag.group && drag.group.length > 1) {
+        let minX = Infinity, minY = Infinity;
+        for (const member of drag.group) { minX = Math.min(minX, member.x); minY = Math.min(minY, member.y); }
+        const gdx = Math.max(140 - minX, dx);
+        const gdy = Math.max(90 - minY, dy);
+        for (const member of drag.group) {
+          const nx = member.x + gdx;
+          const ny = member.y + gdy;
+          const memberNode = nodeById(member.id);
+          if (!memberNode) continue;
+          const memberLayout = nodeLayout(memberNode) || layoutSnapshot(memberNode, { x: member.x, y: member.y });
+          setNodeLayout(memberNode, { ...memberLayout, x: nx, y: ny });
+          Graph.positions.set(member.id, { x: nx, y: ny });
+          const memberEl = Graph.elements.get(member.id);
+          if (memberEl) { memberEl.style.left = `${nx}px`; memberEl.style.top = `${ny}px`; }
+          if (Graph.model?.foldState?.activeRoots.has(member.id)) moveOwnedDeck(member.id, { x: nx, y: ny });
+        }
+        queueEdgesRender();
+        event.preventDefault();
+        return;
+      }
       const layout = nodeLayout(drag.node);
       setNodeLayout(drag.node, { ...layout, x: Math.max(140, drag.originX + dx), y: Math.max(90, drag.originY + dy) });
       const pos = drag.node.metadata.layout;
@@ -775,14 +1244,23 @@
       const dy = (event.clientY - resize.startY) / Graph.scale;
       if (!resize.moved && Math.hypot(dx, dy) >= 2) resize.moved = true;
       const layout = nodeLayout(resize.node);
+      const newWidth = resize.originWidth + dx;
+      const newHeight = Math.min(resize.originHeight + dy, usefulCardHeight(resize.card));
       setNodeLayout(resize.node, {
         ...layout,
-        width: resize.originWidth + dx,
+        width: newWidth,
         // Stop at the first height that reveals the complete reply. This
         // avoids both an unnecessary inner scrollbar and a tall empty card.
-        height: Math.min(resize.originHeight + dy, usefulCardHeight(resize.card)),
+        height: newHeight,
       });
-      applyNodeLayoutStyle(resize.node, Graph.elements.get(resize.node.id));
+      // 保持左上角不动，只拉右下角：按新尺寸重算中心位置
+      const newX = resize.anchorX + newWidth / 2;
+      const newY = resize.anchorY + newHeight / 2;
+      Graph.positions.set(resize.node.id, { x: newX, y: newY });
+      const el = Graph.elements.get(resize.node.id);
+      el.style.left = `${newX}px`;
+      el.style.top = `${newY}px`;
+      applyNodeLayoutStyle(resize.node, el);
       queueEdgesRender();
       event.preventDefault();
     }
@@ -793,7 +1271,16 @@
     if (drag && drag.pointerId === event.pointerId) {
       drag.card.releasePointerCapture?.(event.pointerId);
       drag.card.classList.remove("is-node-dragging");
-      if (drag.moved) {
+      if (drag.group && drag.group.length > 1) {
+        DOM.studyApp?.classList.remove("is-group-dragging");
+        if (drag.moved) {
+          pushCanvasUndo(drag.beforeSnapshot);
+          for (const member of drag.group) {
+            const memberNode = nodeById(member.id);
+            if (memberNode) scheduleNodeLayoutSave(memberNode);
+          }
+        }
+      } else if (drag.moved) {
         pushCanvasUndo(drag.beforeSnapshot);
         scheduleNodeLayoutSave(drag.node);
       }
@@ -814,6 +1301,84 @@
       Graph.nodeResize = null;
       refreshGraphGeometry();
     }
+  }
+
+  // ── 框选（Ctrl/⌘ + 画布空白拖拽）──
+  function beginMarquee(event) {
+    const rect = DOM.viewport.getBoundingClientRect();
+    const x = event.clientX - rect.left;
+    const y = event.clientY - rect.top;
+    clearMarqueeSelection();
+    if (!Graph.marqueeEl) {
+      Graph.marqueeEl = document.createElement("div");
+      Graph.marqueeEl.className = "marquee-select";
+      Graph.marqueeEl.setAttribute("aria-hidden", "true");
+      DOM.viewport.append(Graph.marqueeEl);
+    }
+    Graph.marquee = { pointerId: event.pointerId, x1: x, y1: y, x2: x, y2: y };
+    const el = Graph.marqueeEl;
+    el.style.display = "block";
+    el.style.left = `${x}px`; el.style.top = `${y}px`;
+    el.style.width = "0px"; el.style.height = "0px";
+    DOM.viewport.setPointerCapture?.(event.pointerId);
+  }
+  function updateMarquee(event) {
+    const marquee = Graph.marquee;
+    if (!marquee) return;
+    const rect = DOM.viewport.getBoundingClientRect();
+    const x = event.clientX - rect.left;
+    const y = event.clientY - rect.top;
+    marquee.x2 = x; marquee.y2 = y;
+    const left = Math.min(marquee.x1, marquee.x2), top = Math.min(marquee.y1, marquee.y2);
+    const el = Graph.marqueeEl;
+    el.style.left = `${left}px`; el.style.top = `${top}px`;
+    el.style.width = `${Math.abs(marquee.x2 - marquee.x1)}px`;
+    el.style.height = `${Math.abs(marquee.y2 - marquee.y1)}px`;
+  }
+  function finishMarquee(event) {
+    const marquee = Graph.marquee;
+    if (!marquee) return;
+    Graph.marquee = null;
+    if (Graph.marqueeEl) Graph.marqueeEl.style.display = "none";
+    DOM.viewport.releasePointerCapture?.(marquee.pointerId);
+    const width = Math.abs(marquee.x2 - marquee.x1), height = Math.abs(marquee.y2 - marquee.y1);
+    if (width < 4 && height < 4) { clearMarqueeSelection(); return; }  // 视为点击：清空选中
+    const rect = DOM.viewport.getBoundingClientRect();
+    const left = Math.min(marquee.x1, marquee.x2), top = Math.min(marquee.y1, marquee.y2);
+    const worldX1 = (left - Graph.tx) / Graph.scale;
+    const worldY1 = (top - Graph.ty) / Graph.scale;
+    const worldX2 = (left + width - Graph.tx) / Graph.scale;
+    const worldY2 = (top + height - Graph.ty) / Graph.scale;
+    const foldedAway = Graph.model?.foldState?.foldedAway || new Set();
+    const hits = [];
+    for (const node of State.nodes) {
+      const pos = Graph.positions.get(node.id);
+      const element = Graph.elements.get(node.id);
+      if (!pos || !element || foldedAway.has(node.id)) continue;
+      // 用渲染后的真实尺寸判定（自动排版节点没有 metadata.layout 也能命中）
+      const halfW = element.offsetWidth / 2, halfH = cardHeight(node.id) / 2;
+      if (pos.x - halfW < worldX2 && pos.x + halfW > worldX1 && pos.y - halfH < worldY2 && pos.y + halfH > worldY1) {
+        hits.push(node.id);
+      }
+    }
+    applyMarqueeSelection(hits);
+  }
+  function applyMarqueeSelection(ids) {
+    Graph.marqueeSelection = new Set(ids);
+    updateSelectionClasses();
+    // 框选接管焦点：旧的"单击选中"当前节点回归普通状态（不再悬浮发光）
+    if (ids.length > 0 && State.currentNodeId) {
+      setCurrentNode(null, { center: false, preservePathTarget: true });
+    }
+  }
+  function clearMarqueeSelection() {
+    if (Graph.marqueeSelection.size === 0) return;
+    Graph.marqueeSelection.clear();
+    updateSelectionClasses();
+  }
+  function updateSelectionClasses() {
+    const selected = Graph.marqueeSelection;
+    for (const [id, element] of Graph.elements) element.classList.toggle("is-marquee-selected", selected.has(id));
   }
 
   function subtreeNodeIds(nodeId) {
@@ -967,6 +1532,7 @@
       State.foldedBranches = new Set([...State.foldedBranches].filter((id) => !deleted.has(id)));
       if (deleted.has(State.pathTargetNodeId)) State.pathTargetNodeId = result.parent_id || null;
       State.concealedNodes = new Set([...State.concealedNodes].filter((id) => !deleted.has(id)));
+      if (detailSourceNodeId && deleted.has(detailSourceNodeId)) clearDetailLayer();  // 详情节点被删，收起工作台
       for (const id of deleted) {
         const timer = State.layoutSaveTimers.get(id);
         if (timer) window.clearTimeout(timer);
@@ -1007,7 +1573,10 @@
     // interactive controls inside another ARIA button.
     card.setAttribute("role", "group");
     card.setAttribute("aria-label", `阅读${node.role === "user" ? "问题" : "回答"}`);
-    const selectCard = () => setCurrentNode(node.id);
+    const selectCard = () => {
+      // 单击卡片只做选中（高亮 / 作为后续提问挂载点）；查看全文统一走「详情」
+      setCurrentNode(node.id);
+    };
     card.addEventListener("pointerdown", (event) => beginNodeDrag(event, node, card));
     card.addEventListener("click", (event) => {
       if (Graph.suppressClickNodeId === node.id) {
@@ -1032,7 +1601,8 @@
     });
     article.addEventListener("keydown", (event) => {
       if (event.key === "Escape") {
-        setBranchDrawerOpen(article, false);
+        // 详情工作台内抽屉常驻，Escape 不收起
+        if (!article.classList.contains("is-in-workspace")) setBranchDrawerOpen(article, false);
         card.focus();
         return;
       }
@@ -1047,17 +1617,38 @@
     const content = document.createElement("div"); content.className = "node-content"; content.textContent = node.content;
     const summary = document.createElement("div"); summary.className = "node-summary"; summary.textContent = compactText(node.content); summary.title = node.content;
     const actions = document.createElement("div"); actions.className = "node-actions";
-    const continueButton = document.createElement("button"); continueButton.type = "button"; continueButton.className = "node-action node-action-continue";
-    continueButton.addEventListener("click", () => { setCurrentNode(node.id); DOM.messageInput.focus(); });
     const collapseButton = document.createElement("button"); collapseButton.type = "button"; collapseButton.className = "node-action node-action-fold";
     collapseButton.dataset.action = "fold";
     collapseButton.addEventListener("click", () => {
       // 这里只负责折叠真实后代；节点正文始终填满卡片，不再有独立展开状态。
+      if (detailSourceNodeId) return;  // 详情工作台内「收起/展开」无效化
       if (childNodes(node.id).length > 0) toggleFold(node.id);
     });
     const concealButton = document.createElement("button"); concealButton.type = "button"; concealButton.className = "node-action node-action-conceal";
     concealButton.addEventListener("click", (event) => { event.stopPropagation(); concealNode(node.id); });
-    actions.append(continueButton, collapseButton, concealButton);
+    const detailButton = document.createElement("button");
+    detailButton.type = "button";
+    detailButton.className = "node-action node-action-detail";
+    detailButton.textContent = "详情";
+    detailButton.title = "查看全文";
+    detailButton.addEventListener("click", (event) => {
+      event.stopPropagation();
+      if (detailSourceNodeId === node.id && detailLayer) return;  // 已在详情，避免重建
+      setCurrentNode(node.id, { center: false });
+      // 详情始终在右侧阅读栏展示完整文本；宽屏拆解由工作台田字格承担（不重复渲染）
+      if (DOM.readerPanel && !DOM.readerPanel.classList.contains("is-panel-open")) {
+        DOM.readerPanel.classList.add("is-panel-open");
+        if (DOM.readerPanelToggle) DOM.readerPanelToggle.setAttribute("aria-expanded", "true");
+        if (DOM.panelBackdrop) DOM.panelBackdrop.hidden = false;
+        document.body.classList.add("has-open-workspace-panel");
+      }
+      // 宽屏：节点居中后，克隆卡片 FLIP 飞入田字工作台右下格
+      if (window.innerWidth >= 1360) {
+        centerOnNode(node.id);
+        buildDetailStage(node, { fly: true });
+      }
+    });
+    actions.append(collapseButton, concealButton, detailButton);
     if (node.role === "assistant") {
       const drawerButton = document.createElement("button");
       drawerButton.type = "button";
@@ -1099,8 +1690,9 @@
         button.className = `branch-slot ${slot}`; button.dataset.slot = slot;
         button.addEventListener("click", () => {
           if (button.disabled) return;
-          setBranchDrawerOpen(article, false);
-          setCurrentNode(node.id); chooseInteractionType(slot); DOM.messageInput.focus();
+          // 详情工作台内抽屉常驻：点选方向后不收起
+          if (!article.classList.contains("is-in-workspace")) setBranchDrawerOpen(article, false);
+          setCurrentNode(node.id); chooseInteractionType(slot); setComposerActive(true);
         });
         slots.append(button);
       }
@@ -1115,7 +1707,8 @@
     resizeHandle.className = "node-resize-handle";
     resizeHandle.setAttribute("aria-hidden", "true");
     resizeHandle.addEventListener("pointerdown", (event) => beginNodeResize(event, node, card));
-    card.append(resizeHandle);
+    // 手柄挂在 element 层（而非 card），才能凸出卡片圆角外
+    article.append(resizeHandle);
     article.append(card);
     if (slots) article.append(slots);
     return article;
@@ -1127,7 +1720,7 @@
   }
 
   function cardHeight(nodeId) {
-    return Graph.elements.get(nodeId)?.querySelector(".node-card")?.offsetHeight || NODE_DEFAULT_HEIGHT;
+    return Graph.elements.get(nodeId)?.querySelector(".node-card")?.offsetHeight || layoutPrefs().node_height;
   }
 
   function buildLayout() {
@@ -1137,9 +1730,15 @@
     const { children, roots } = Graph.model;
     // A single-child chain stays vertical: question -> answer is a calm
     // downward rhythm.  Only a real divergence consumes horizontal space.
-    const nodeWidth = 300; const siblingGap = 68; const rootGap = 110;
+    const prefs = layoutPrefs();
+    const nodeWidth = prefs.node_width; const siblingGap = 68; const rootGap = 110;
     const widthOf = (id) => nodeLayout(nodeById(id))?.width || nodeWidth;
-    const top = 95; const padding = 240; const layerGap = 82;
+    // Tree alternates strictly: user question at even depth, assistant answer at
+    // odd depth. Question -> answer links are tight (visible ~24px) so a Q&A pair
+    // reads as one unit; answer -> branch links keep the normal spacing below.
+    const top = 95; const padding = 240;
+    const qaGap = prefs.qa_gap;   // visible edge = qaGap - 20 ≈ 24px
+    const branchGap = prefs.branch_gap; // original spacing for answer -> branch
     const foldedAway = (Graph.model && Graph.model.foldedAway) || new Set();
     const visible = nodes.filter((node) => !foldedAway.has(node.id));
     const maxDepth = Math.max(0, ...visible.map((node) => depthOf(node.id)));
@@ -1152,7 +1751,10 @@
     for (let depth = 1; depth <= maxDepth; depth += 1) {
       const previousHeight = layerHeights.get(depth - 1) || 90;
       const currentHeight = layerHeights.get(depth) || 90;
-      layerY.set(depth, layerY.get(depth - 1) + previousHeight / 2 + layerGap + currentHeight / 2);
+      // odd depth = entering an assistant answer (question -> answer, tight);
+      // even depth = entering a user branch (answer -> branch, normal).
+      const gap = depth % 2 === 1 ? qaGap : branchGap;
+      layerY.set(depth, layerY.get(depth - 1) + previousHeight / 2 + gap + currentHeight / 2);
     }
     const horizontal = window.TreeningLayoutState.createHorizontalGeometry(children, widthOf, {
       siblingGap,
@@ -1205,8 +1807,8 @@
   function edgePath(from, to, parentHeight, childHeight) {
     const rawStartY = from.y + parentHeight / 2 + 10;
     const rawEndY = to.y - childHeight / 2 - 10;
-    const startY = Math.min(rawStartY, rawEndY - 24);
-    const endY = Math.max(rawEndY, startY + 24);
+    const startY = Math.min(rawStartY, rawEndY - 20);
+    const endY = Math.max(rawEndY, startY + 20);
     const curveY = startY + (endY - startY) / 2;
     return `M ${from.x} ${startY} C ${from.x} ${curveY}, ${to.x} ${curveY}, ${to.x} ${endY}`;
   }
@@ -1284,10 +1886,8 @@
     const card = element.querySelector(".node-card");
     if (card) card.setAttribute("aria-current", isCurrent ? "true" : "false");
     branchText.textContent = BRANCH_LABELS[branch] || "学习回应";
-    const continueButton = element.querySelector(".node-action-continue");
     const collapseButton = element.querySelector(".node-action-fold");
     const concealButton = element.querySelector(".node-action-conceal");
-    continueButton.textContent = node.role === "assistant" ? "从这里继续" : "回到上层";
     const hasChildren = childNodes(node.id).length > 0;
     collapseButton.hidden = !hasChildren;
     if (hasChildren) {
@@ -1302,14 +1902,24 @@
     concealOverlay.hidden = !concealed;
     semanticSummary.className = `node-conceal-summary ${branch}`;
     semanticSummary.textContent = nodeSummary(node) || "摘要生成中…";
+    syncNodeBranchUI(element, node);
+  }
+
+  // 分支标签 + 抽屉三选项（标签 / 已用占用态 / 禁用）——画布节点与详情工作台克隆共用
+  function syncNodeBranchUI(element, node) {
+    const branch = normalizeBranch(node.branch_type);
+    element.dataset.branch = branch;
+    const branchText = element.querySelector(".node-branch");
+    if (branchText) branchText.textContent = BRANCH_LABELS[branch] || "学习回应";
     if (node.role !== "assistant") return;
     const used = new Set(childNodes(node.id).map((child) => normalizeBranch(child.branch_type)));
     element.querySelectorAll(".branch-slot").forEach((button) => {
       const slot = button.dataset.slot; const occupied = used.has(slot);
       button.disabled = occupied || used.size >= State.maxBranches;
       button.classList.toggle("is-used", occupied);
-      button.textContent = slot === "custom" ? (occupied ? "其他 · 已用" : "＋ 其他") : (slot === "check" ? (occupied ? "验收 · 已用" : "验收") : (occupied ? "追问 · 已用" : "追问"));
-      button.title = occupied ? "这个分支已经创建" : `从这里开始${BRANCH_LABELS[slot]}分支`;
+      const slotLabel = BRANCH_LABELS[slot] || (slot === "custom" ? "其他" : slot === "check" ? "验收" : "追问");
+      button.textContent = occupied ? `${slotLabel} · 已用` : (slot === "custom" ? `＋ ${slotLabel}` : slotLabel);
+      button.title = occupied ? "这个分支已经创建" : `从这里开始${slotLabel}分支`;
     });
   }
 
@@ -1376,11 +1986,7 @@
     DOM.studyApp?.classList.toggle("is-large-tree", State.nodes.length > 80);
     DOM.viewport.dataset.visibleNodes = String(visibleCount);
     if (DOM.workspaceTitle) DOM.workspaceTitle.textContent = State.sessionTitle || compactText(rootQuestion || "未命名学习主题");
-    if (DOM.workspaceMeta) DOM.workspaceMeta.textContent = State.viewMode === "path"
-      ? `当前路径 ${visibleCount} / ${State.nodes.length} 个节点 · 深度 ${focusDepth}`
-      : State.viewMode === "nearby"
-        ? `路径与邻近分支 ${visibleCount} / ${State.nodes.length} 个节点 · 深度 ${focusDepth}`
-        : `${State.nodes.length} 个节点 · 当前深度 ${focusDepth}`;
+    if (DOM.railDepth) DOM.railDepth.textContent = `深度 ${focusDepth}`;
     const liveIds = new Set(State.nodes.map((node) => node.id));
     const displayIds = new Set(Graph.model.nodes.map((node) => node.id));
     for (const [id, element] of Graph.elements) if (!liveIds.has(id)) { element.remove(); Graph.elements.delete(id); }
@@ -1406,6 +2012,9 @@
     renderEdges();
     DOM.world.style.width = `${Graph.width}px`; DOM.world.style.height = `${Graph.height}px`; applyTransform();
     applyDeckTransforms();
+    // 框选随重绘同步：清理已不存在的节点，并给重建的卡片重新上高亮
+    for (const id of [...Graph.marqueeSelection]) if (!liveIds.has(id)) Graph.marqueeSelection.delete(id);
+    updateSelectionClasses();
     updateBulkVisibilityControls();
   }
 
@@ -1461,7 +2070,22 @@
       if (job.status === "pending" || job.status === "running") { State.pendingJobs.set(jobId, true); window.setTimeout(() => pollJob(jobId, generation), 700); return; }
       State.pendingJobs.delete(jobId); removeLoading(jobId); setQuota(job.quota);
       if (job.status === "completed") {
-        appendNode({ id: job.assistant_node_id, session_id: job.session_id, parent_id: job.user_node_id, role: "assistant", branch_type: job.branch_slot || normalizeBranch(nodeById(job.user_node_id)?.branch_type), content: job.answer || "（没有收到有效回答）" });
+        const userNode = nodeById(job.user_node_id);
+        if (userNode && job.user_node?.metadata) {
+          userNode.metadata = job.user_node.metadata;
+          renderGraph({ reflow: false });
+          renderReader();
+        }
+        appendNode({
+          id: job.assistant_node_id,
+          session_id: job.session_id,
+          parent_id: job.user_node_id,
+          role: "assistant",
+          branch_type: job.branch_slot || normalizeBranch(userNode?.branch_type),
+          content: job.answer || "（没有收到有效回答）",
+          metadata: job.assistant_node?.metadata || {},
+        });
+        setComposerActive(false);  // 回答长出后收起输入框
       } else appendError(job.error === "quiz provider is not configured" ? "学习服务尚未配置，请先设置 TREENING_API_KEY。" : "这次学习请求没有完成，可以稍后重试。");
       DOM.sendButton.disabled = false;
     } catch (error) {
@@ -1474,9 +2098,15 @@
   async function submitMessage(event) {
     event.preventDefault(); const question = DOM.messageInput.value.trim();
     if (!question || State.pendingJobs.size >= 2) return;
+    // 发问即离开详情态：撤掉克隆/三卡/固定提问栏，让树回到自然布局，新卡片才能正常衔接
+    clearDetailLayer();
     DOM.sendButton.disabled = true; DOM.composerHint.textContent = "请求已进入学习队列……";
     try {
       const result = await API.ask({ session_id: State.sessionId, parent_node_id: branchParentId(), interaction_type: State.interactionType, question });
+      if (!State.sessionId && result.session_id) {
+        State.sessionId = result.session_id;
+        activateFoldSession(State.sessionId);
+      }
       setQuota(result.quota); appendNode(result.user_node); DOM.messageInput.value = "";
       State.pendingJobs.set(result.job_id, true); appendLoading(result.job_id); window.setTimeout(() => pollJob(result.job_id, State.sessionGeneration), 200);
     } catch (error) {
@@ -1494,7 +2124,7 @@
     document.querySelectorAll("[data-interaction]").forEach((button) => button.classList.toggle("is-selected", button.dataset.interaction === State.interactionType));
     DOM.messageInput.focus();
   }
-  function chooseInteraction(button) { chooseInteractionType(button.dataset.interaction); }
+  function chooseInteraction(button) { chooseInteractionType(button.dataset.interaction); setComposerActive(true); }
 
   function markViewTransition() {
     DOM.viewport.classList.add("is-view-transitioning");
@@ -1507,6 +2137,8 @@
 
   function setViewMode(mode) {
     State.viewMode = ["path", "nearby"].includes(mode) ? mode : "tree";
+    // 聚焦视图（邻近/路径）才压暗非焦点节点；完整树默认全亮便于阅读
+    DOM.studyApp?.classList.toggle("is-focus-view", State.viewMode !== "tree");
     if (State.viewMode !== "tree" && State.currentNodeId) State.pathTargetNodeId = State.currentNodeId;
     DOM.treeViewButton?.classList.toggle("is-selected", State.viewMode === "tree");
     DOM.nearbyViewButton?.classList.toggle("is-selected", State.viewMode === "nearby");
@@ -1523,7 +2155,7 @@
   function fitGraph() {
     if (!State.nodes.length) return;
     const rect = DOM.viewport.getBoundingClientRect(); const pad = 70;
-    const composerInset = window.matchMedia("(min-width: 861px)").matches ? 138 : 0;
+    const composerInset = (!DOM.composer.classList.contains("is-collapsed") && window.matchMedia("(min-width: 861px)").matches) ? 138 : 0;
     const usableHeight = Math.max(180, rect.height - composerInset);
     Graph.scale = Math.max(MIN_SCALE, Math.min(1.05, (rect.width - pad * 2) / Graph.width, (usableHeight - pad * 2) / Graph.height));
     Graph.tx = (rect.width - Graph.width * Graph.scale) / 2; Graph.ty = (usableHeight - Graph.height * Graph.scale) / 2; applyTransform();
@@ -1536,7 +2168,7 @@
   function centerOnNode(id) {
     const position = Graph.positions.get(id); if (!position) return;
     const rect = DOM.viewport.getBoundingClientRect();
-    const composerInset = window.matchMedia("(min-width: 861px)").matches ? 138 : 0;
+    const composerInset = (!DOM.composer.classList.contains("is-collapsed") && window.matchMedia("(min-width: 861px)").matches) ? 138 : 0;
     Graph.tx = rect.width / 2 - position.x * Graph.scale; Graph.ty = (rect.height - composerInset) / 2 - position.y * Graph.scale; applyTransform();
   }
   function zoomAt(clientX, clientY, factor) {
@@ -1556,17 +2188,28 @@
     DOM.viewport.addEventListener("pointerdown", (event) => {
       if (event.button !== 0 && event.button !== 1) return;
       if (event.target.closest(".graph-node, .minimap, button, textarea, input")) return;
-      event.preventDefault();  // 平移时不触发原生拖拽/文本选区
+      event.preventDefault();  // 平移/框选时不触发原生拖拽/文本选区
+      // Ctrl/⌘ + 拖拽 = 框选节点；否则 = 平移（并清空框选）
+      if (event.ctrlKey || event.metaKey) { beginMarquee(event); return; }
+      clearMarqueeSelection();
+      // 未发问时点击画布空白：收起输入框（空树除外——空树必须靠输入框开始）
+      if (State.nodes.length > 0 && DOM.composer && !DOM.composer.classList.contains("is-collapsed")) {
+        setComposerActive(false);
+      }
       Graph.dragging = true; Graph.pointerId = event.pointerId; Graph.lastPointer = { x: event.clientX, y: event.clientY }; DOM.viewport.classList.add("is-panning"); DOM.viewport.setPointerCapture(event.pointerId);
     });
     DOM.viewport.addEventListener("selectstart", (event) => {
-      if (Graph.dragging) event.preventDefault();  // 平移中禁止文本选区
+      if (Graph.dragging || Graph.marquee) event.preventDefault();  // 平移/框选中禁止文本选区
     });
     DOM.viewport.addEventListener("pointermove", (event) => {
+      if (Graph.marquee && event.pointerId === Graph.marquee.pointerId) { updateMarquee(event); event.preventDefault(); return; }
       if (!Graph.dragging || event.pointerId !== Graph.pointerId) return;
       Graph.tx += event.clientX - Graph.lastPointer.x; Graph.ty += event.clientY - Graph.lastPointer.y; Graph.lastPointer = { x: event.clientX, y: event.clientY }; applyTransform();
     });
-    const stopPan = (event) => { if (event.pointerId !== Graph.pointerId) return; Graph.dragging = false; DOM.viewport.classList.remove("is-panning"); };
+    const stopPan = (event) => {
+      if (Graph.marquee && event.pointerId === Graph.marquee.pointerId) { finishMarquee(event); return; }
+      if (event.pointerId !== Graph.pointerId) return; Graph.dragging = false; DOM.viewport.classList.remove("is-panning");
+    };
     DOM.viewport.addEventListener("pointerup", stopPan); DOM.viewport.addEventListener("pointercancel", stopPan);
     // 空格键已不再承担任何画布职责（滚轮缩放改为直接绑定画布）：
     // 移除 spaceHeld 状态，避免焦点切换导致"空格卡在画布里"的残留问题。
@@ -1603,7 +2246,20 @@
     let _resizeTimer = null;
     window.addEventListener("resize", () => {
       if (_resizeTimer) clearTimeout(_resizeTimer);
-      _resizeTimer = window.setTimeout(() => { if (State.nodes.length) fitGraph(); }, 200);
+      _resizeTimer = window.setTimeout(() => {
+        // 详情打开时窗口变化：宽屏重建工作台（直接就位，不重播 FLIP）；缩到窄屏则收起舞台
+        if (detailSourceNodeId) {
+          if (window.innerWidth >= 1360) {
+            const focus = nodeById(detailSourceNodeId);
+            if (focus) { centerOnNode(focus.id); buildDetailStage(focus, { fly: false }); return; }
+          } else {
+            clearDetailLayer();
+          }
+        }
+        // 跨 1360 边界时刷新阅读栏拆解回退的可见性
+        if (State.readerNodeId) renderReader();
+        if (State.nodes.length) fitGraph();
+      }, 200);
     });
     // 字体就绪后重新布局+居中（防止测量用的是回退字体）
     if (document.fonts && document.fonts.ready) {
@@ -1625,10 +2281,13 @@
       }
       if (DOM.panelBackdrop) DOM.panelBackdrop.hidden = true;
       document.body.classList.remove("has-open-workspace-panel");
+      clearDetailLayer();
     };
     const togglePanel = (name) => {
       const target = panels[name];
-      if (!target?.panel || window.innerWidth >= 1360) return;
+      if (!target?.panel) return;
+      // 宽屏左栏常驻，历史面板仅窄屏需要；阅读面板任意宽度都可展开
+      if (name === "history" && window.innerWidth >= 1360) return;
       const shouldOpen = !target.panel.classList.contains("is-panel-open");
       closePanels();
       if (!shouldOpen) return;
@@ -1641,8 +2300,8 @@
     DOM.readerPanelToggle?.addEventListener("click", () => togglePanel("reader"));
     DOM.panelBackdrop?.addEventListener("pointerdown", closePanels);
     DOM.panelBackdrop?.addEventListener("click", closePanels);
-    window.addEventListener("keydown", (event) => { if (event.key === "Escape") closePanels(); });
-    window.addEventListener("resize", () => { if (window.innerWidth >= 1360) closePanels(); });
+    window.addEventListener("keydown", (event) => { if (event.key === "Escape") { clearMarqueeSelection(); closePanels(); } });
+    window.addEventListener("resize", () => { if (window.innerWidth < 900) closePanels(); });
   }
 
   function resumeActiveJobs(result) {
@@ -1659,9 +2318,15 @@
 
   async function loadSession() {
     const result = await API.getSession();
-    State.sessionId = result.session.id; activateFoldSession(State.sessionId); State.maxBranches = result.max_branches || 3;
-    State.sessionTitle = result.session.title || result.session.root_question || "";
+    State.sessionId = result.session?.id || null;
+    if (State.sessionId) activateFoldSession(State.sessionId);
+    else State.foldedBranches = new Set();
+    State.maxBranches = result.max_branches || 3;
+    applyBranchLabels(result.branch_labels);
+    applyLayoutPrefs(result.layout_prefs);
+    State.sessionTitle = result.session?.title || result.session?.root_question || "";
     setQuota(result.quota); renderInitialNodes(result.nodes);
+    setComposerActive(!result.session);  // 空树显示输入框，有树收起
     resumeActiveJobs(result);
     // Keep a delayed fallback independent of the initial request. In some
     // browsers the access-cookie response and the first history request can
@@ -1684,8 +2349,11 @@
     const result = await API.getSessionById(sessionId);
     State.sessionGeneration += 1; clearPendingJobs();
     State.sessionId = result.session.id; activateFoldSession(State.sessionId); State.maxBranches = result.max_branches || State.maxBranches;
+    applyBranchLabels(result.branch_labels);
+    applyLayoutPrefs(result.layout_prefs);
     State.sessionTitle = result.session.title || result.session.root_question || "";
     setQuota(result.quota); renderInitialNodes(result.nodes);
+    setComposerActive(false);  // 有树主题默认收起输入框
     resumeActiveJobs(result);
     chooseInteractionType("question"); await loadSessionHistory();
   }
@@ -1717,13 +2385,14 @@
     State.sessionGeneration += 1;
     clearPendingJobs();
     State.sessionId = result.session.id; activateFoldSession(State.sessionId); State.maxBranches = result.max_branches || State.maxBranches;
+    applyBranchLabels(result.branch_labels);
+    applyLayoutPrefs(result.layout_prefs);
     State.sessionTitle = "";
-    renderInitialNodes([]); setQuota(result.quota); DOM.messageInput.value = ""; chooseInteractionType("question"); DOM.messageInput.focus(); await loadSessionHistory();
+    renderInitialNodes([]); setQuota(result.quota); DOM.messageInput.value = ""; chooseInteractionType("question"); setComposerActive(true); await loadSessionHistory();
   }
   DOM.messageForm.addEventListener("submit", submitMessage);
   DOM.messageInput.addEventListener("keydown", (event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); DOM.messageForm.requestSubmit(); } });
   document.querySelectorAll("[data-interaction]").forEach((button) => button.addEventListener("click", () => chooseInteraction(button)));
-  DOM.clearContextButton.addEventListener("click", () => chooseInteractionType("skip"));
   DOM.readerFocusButton.addEventListener("click", () => {
     if (State.readerNodeId) {
       setCurrentNode(State.readerNodeId);
@@ -1734,6 +2403,7 @@
     if (State.readerNodeId) revealNode(State.readerNodeId);
   });
   DOM.readerFoldButton?.addEventListener("click", () => {
+    if (detailSourceNodeId) return;  // 详情工作台内收起/展开无效化
     const node = nodeById(State.readerNodeId);
     if (!node || childNodes(node.id).length === 0) return;
     toggleFold(node.id);
@@ -1759,5 +2429,41 @@
   if (DOM.concealAllButton) DOM.concealAllButton.addEventListener("click", concealAllNodes);
   if (DOM.revealAllButton) DOM.revealAllButton.addEventListener("click", revealAllNodes);
   DOM.newSessionButton.addEventListener("click", () => createNewSession().catch((error) => appendError(error.message)));
+  if (DOM.railCollapseToggle) {
+    DOM.railCollapseToggle.addEventListener("click", () => {
+      const collapsed = DOM.studyApp.classList.toggle("is-rail-collapsed");
+      DOM.railCollapseToggle.setAttribute("aria-expanded", String(!collapsed));
+      const label = collapsed ? "展开左侧栏" : "收起左侧栏";
+      DOM.railCollapseToggle.setAttribute("aria-label", label);
+      DOM.railCollapseToggle.setAttribute("title", label);
+      // 画布随 grid 自动扩大，保持当前缩放与平移，不做强制适配
+    });
+  }
+  // 登出与配置链接权限
+  const logoutBtn = document.querySelector("#logout-button");
+  if (logoutBtn) {
+    logoutBtn.addEventListener("click", async () => {
+      try { await fetch("/api/auth/logout", { method: "POST" }); } catch (_) { /* ignore */ }
+      window.location.href = "/login";
+    });
+  }
+  // 配置入口对所有登录用户开放：每人管理自己的 persona/命名/拆解；
+  // 管理员入口仅 admin 角色可见（/admin 路由也有守卫兜底）。
+  fetch("/api/auth/me")
+    .then((r) => r.json())
+    .then((d) => {
+      const adminLink = document.querySelector("#admin-link");
+      if (adminLink && d?.authenticated && d?.user?.role === "admin") {
+        adminLink.hidden = false;
+      }
+    })
+    .catch(() => {});
+
+  // 心跳：每 60 秒上报一次活跃，页面打开期间保持「在线」状态。
+  // 服务端根据 last_seen_at（5 分钟窗口）判定在线/离线。
+  setInterval(() => {
+    fetch("/api/auth/ping", { method: "GET", cache: "no-store" }).catch(() => {});
+  }, 60000);
+
   setupCanvas(); setupResponsivePanels(); renderGraph(); loadSession();
 })();

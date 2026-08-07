@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Treening · 找回密码</title>
+<link rel="icon" type="image/png" href="/static/img/logo.png">
+<script src="/static/js/theme.js?v=20260807-08"></script>
+<link rel="stylesheet" href="/static/css/tree.css?v=20260807-12">
+</head>
+<body>
+<main class="quiz-shell">
+  <section class="access-panel" aria-labelledby="forgot-title">
+    <button class="theme-toggle theme-toggle-switch setup-theme-toggle" type="button" data-theme-toggle aria-pressed="false">
+      <span class="theme-toggle-thumb" aria-hidden="true">
+        <svg class="theme-toggle-sun" viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="12" r="4.5"/><path d="M12 2v2.6M12 19.4V22M2 12h2.6M19.4 12H22M4.9 4.9l1.9 1.9M17.2 17.2l1.9 1.9M19.1 4.9l-1.9 1.9M6.8 17.2l-1.9 1.9"/></svg>
+        <svg class="theme-toggle-moon" viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8Z"/></svg>
+      </span>
+    </button>
+    <span class="eyebrow">TREENING / RESET</span>
+    <h1 id="forgot-title">找回密码</h1>
+    <p>填写注册时的用户名和邮箱，重置链接会发送到该邮箱。</p>
+    <form id="forgot-form">
+      <label for="forgot-username">用户名</label>
+      <input id="forgot-username" type="text" maxlength="20" autocomplete="username" required>
+      <label for="forgot-email">邮箱</label>
+      <input id="forgot-email" type="email" maxlength="254" autocomplete="email" placeholder="name@example.com" required>
+      <p class="form-error" id="forgot-error" role="alert"></p>
+      <div class="access-row">
+        <button class="button button-primary" type="submit">发送重置邮件</button>
+      </div>
+    </form>
+    <div id="forgot-success" hidden style="font-size:13px;line-height:1.7;color:var(--quiz-text)">
+      <p style="margin:0 0 12px">✓ 如果用户名和邮箱匹配，重置邮件已发送到你的邮箱。</p>
+      <p style="margin:0 0 4px;color:var(--quiz-faint)">请查收邮件（含垃圾箱），点击邮件里的链接，30 分钟内有效。</p>
+    </div>
+    <p style="margin-top:16px;font-size:13px">
+      想起来了？<a class="text-button" href="/login">返回登录</a>
+    </p>
+  </section>
+</main>
+<script>
+(() => {
+  "use strict";
+  const form = document.getElementById("forgot-form");
+  const errorEl = document.getElementById("forgot-error");
+  const successBox = document.getElementById("forgot-success");
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    errorEl.textContent = "";
+    successBox.hidden = true;
+    const username = document.getElementById("forgot-username").value.trim();
+    const email = document.getElementById("forgot-email").value.trim();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]{2,}$/.test(email)) { errorEl.textContent = "邮箱格式不正确"; return; }
+    const btn = e.currentTarget.querySelector("button[type=submit]");
+    btn.disabled = true; btn.textContent = "发送中…";
+    try {
+      const res = await fetch("/api/auth/forgot", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username, email }),
+      });
+      const d = await res.json();
+      if (!res.ok || !d.ok) { errorEl.textContent = d.error || "发送失败，请稍后再试"; return; }
+      form.hidden = true;
+      successBox.hidden = false;
+    } catch (_) {
+      errorEl.textContent = "无法连接服务，请重试";
+    } finally {
+      btn.disabled = false; btn.textContent = "发送重置邮件";
+    }
+  });
+})();
+</script>
+</body>
+</html>

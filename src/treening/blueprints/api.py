@@ -16,7 +16,7 @@ from typing import Any
 
 from flask import Blueprint, current_app, jsonify, request, send_file, session
 
-from ..config import config
+from ..config import config, layout_prefs_for
 from ..services.exporter import render_export
 from ..services.methodology import Methodology
 from ..services.provider import TreeProvider, TreeProviderError
@@ -39,9 +39,41 @@ def _methodology() -> Methodology:
 
 
 def _identity() -> str:
-    # 单用户固定身份；顺带把旧 quiz.db 中随机 user_id 的历史主题并入
-    _store().claim_legacy_sessions(config.OWNER_ID)
-    return config.OWNER_ID
+    """当前登录用户的 id（访问守卫已保证已登录，此处兜底）。"""
+    user_id = session.get("user_id")
+    if not user_id:
+        raise TreeProviderError("auth required")
+    return user_id
+
+
+def _user_config() -> dict[str, Any]:
+    """当前登录用户的个性化配置（persona/命名/拆解开关）。无记录时返回空。"""
+    cfg = _store().get_user_config(_identity())
+    return cfg or {}
+
+
+def _branch_labels_for(user_cfg: dict[str, Any]) -> dict[str, str]:
+    """用户命名覆盖 + rules.yaml 默认兜底（只合并非空覆盖）。"""
+    overrides = {
+        k: v.strip()
+        for k, v in (user_cfg.get("branch_labels") or {}).items()
+        if v and str(v).strip()
+    }
+    return {**config._default_branch_labels(), **overrides}
+
+
+def _layout_prefs_for(user_cfg: dict[str, Any]) -> dict[str, float]:
+    """用户布局偏好（qa_gap/branch_gap/node_width/node_height），默认兜底 + 范围夹取。"""
+    return layout_prefs_for(user_cfg)
+
+
+def _deconstruction_for(user_cfg: dict[str, Any]) -> list[str]:
+    """用户拆解开关；未设置时默认全部开启。"""
+    enabled = user_cfg.get("deconstruction_enabled")
+    if isinstance(enabled, list) and enabled:
+        valid = set(config.ALL_DECONSTRUCTION_BLOCKS)
+        return [k for k in enabled if k in valid]
+    return list(config.ALL_DECONSTRUCTION_BLOCKS)
 
 
 def _client_ip() -> str:
@@ -79,6 +111,8 @@ def _session_payload(session_id: str, user_id: str) -> dict[str, Any]:
         "active_jobs": store.list_active_jobs(session_id, user_id),
         "quota": _quota(user_id, _client_ip()),
         "max_branches": _max_branches(),
+        "branch_labels": _branch_labels_for(_user_config()),
+        "layout_prefs": _layout_prefs_for(_user_config()),
     }
 
 
@@ -100,6 +134,8 @@ def _run_job(app, job_id: str, user_id: str) -> None:
                 path_ids,
                 limit=min(4, context_limit),
             )
+            # 后台线程无请求上下文，直接用传入的 user_id 读用户配置
+            user_cfg = _store().get_user_config(user_id) or {}
             provider = TreeProvider(
                 _methodology(),
                 config.API_KEY,
@@ -107,20 +143,18 @@ def _run_job(app, job_id: str, user_id: str) -> None:
                 config.MODEL,
                 int(config.PROVIDER_TIMEOUT_SECONDS),
                 context_limit,
+                user_cfg.get("persona", ""),
+                _deconstruction_for(user_cfg),
             )
-            result = provider.answer_with_summaries(
+            blocks = provider.answer_with_blocks(
                 path,
                 side_context,
                 job["interaction_type"],
             )
-            if len(result) == 2:
-                answer, legacy_summary = result
-                question_summary = answer_summary = legacy_summary
-            else:
-                answer, question_summary, answer_summary = result
-            user_metadata = {}
-            if question_summary:
-                user_metadata["summary"] = question_summary
+            answer = blocks["answer"]
+            question_summary = blocks["question_summary"] or TreeProvider.fallback_summary(job["question"])
+            answer_summary = blocks["answer_summary"] or TreeProvider.fallback_summary(answer)
+            user_metadata = {"summary": question_summary}
             store.update_node_metadata(
                 job["session_id"],
                 user_id,
@@ -130,9 +164,13 @@ def _run_job(app, job_id: str, user_id: str) -> None:
             assistant_metadata = {
                 "job_id": job_id,
                 "model": config.MODEL,
+                "summary": answer_summary,
+                "contradiction": blocks["contradiction"],
+                "practice": blocks["practice"],
+                "check_question": blocks["check_question"],
+                "reflect_question": blocks["reflect_question"],
+                "inspire_question": blocks["inspire_question"],
             }
-            if answer_summary:
-                assistant_metadata["summary"] = answer_summary
             assistant = store.add_node(
                 job["session_id"],
                 user_id,
@@ -177,9 +215,18 @@ def get_session():
     user_id = _identity()
     session_id = session.get("tree_session_id")
     if not isinstance(session_id, str) or not _store().get_session(session_id, user_id):
-        quiz_session = _store().create_session(user_id)
-        session_id = quiz_session["id"]
-        session["tree_session_id"] = session_id
+        # A read-only page visit must not create a permanent empty topic.
+        # The first real question creates the session in ``ask`` instead.
+        return jsonify({
+            "ok": True,
+            "session": None,
+            "nodes": [],
+            "active_jobs": [],
+            "quota": _quota(user_id, _client_ip()),
+            "max_branches": _max_branches(),
+            "branch_labels": _branch_labels_for(_user_config()),
+            "layout_prefs": _layout_prefs_for(_user_config()),
+        })
     return jsonify({"ok": True, **_session_payload(session_id, user_id)})
 
 
@@ -194,13 +241,20 @@ def create_session():
         "nodes": [],
         "quota": _quota(user_id, _client_ip()),
         "max_branches": _max_branches(),
+        "branch_labels": _branch_labels_for(_user_config()),
+        "layout_prefs": _layout_prefs_for(_user_config()),
     }), 201
 
 
 @api_bp.route("/sessions", methods=["GET"])
 def list_sessions():
     include_archived = request.args.get("include_archived", "0").lower() in {"1", "true", "yes"}
-    return jsonify({"sessions": _store().list_sessions(_identity(), include_archived=include_archived)})
+    include_drafts = request.args.get("include_drafts", "0").lower() in {"1", "true", "yes"}
+    return jsonify({
+        "sessions": _store().list_sessions(
+            _identity(), include_archived=include_archived, include_drafts=include_drafts,
+        ),
+    })
 
 
 @api_bp.route("/sessions/<session_id>", methods=["GET"])
@@ -261,6 +315,7 @@ def summarize_node(session_id: str, node_id: str):
         return jsonify({"summary": existing, "node": node})
     if not config.API_KEY:
         return jsonify({"error": "学习服务尚未配置", "code": "tree_provider_unconfigured"}), 503
+    user_cfg = _user_config()
     provider = TreeProvider(
         _methodology(),
         config.API_KEY,
@@ -268,6 +323,8 @@ def summarize_node(session_id: str, node_id: str):
         config.MODEL,
         int(config.PROVIDER_TIMEOUT_SECONDS),
         1,
+        user_cfg.get("persona", ""),
+        _deconstruction_for(user_cfg),
     )
     try:
         summary = provider.summarize_node(
@@ -476,6 +533,7 @@ def get_job(job_id: str):
         if job.get("assistant_node_id")
         else None
     )
+    user_node = _store().get_node(job["user_node_id"], job["session_id"], _identity())
     return jsonify({
         "id": job["id"],
         "status": job["status"],
@@ -483,6 +541,7 @@ def get_job(job_id: str):
         "error": job["error"],
         "assistant_node_id": job["assistant_node_id"],
         "assistant_node": assistant_node,
+        "user_node": user_node,
         "session_id": job["session_id"],
         "user_node_id": job["user_node_id"],
         "interaction_type": job["interaction_type"],

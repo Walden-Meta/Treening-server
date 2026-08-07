@@ -4,28 +4,51 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Treening · 学习空间</title>
-<script src="/static/js/theme.js?v=20260804-1"></script>
-<link rel="stylesheet" href="/static/css/tree.css?v=20260804-19">
+<link rel="icon" type="image/png" href="/static/img/logo.png">
+<script src="/static/js/theme.js?v=20260807-08"></script>
+<link rel="stylesheet" href="/static/css/tree.css?v=20260807-18">
 </head>
 <body>
 <main class="quiz-shell">
   <section class="study-app" id="study-app">
     <header class="study-header">
+      <a class="site-logo-link" href="/manual" title="下载操作手册">
+        <img class="site-logo" src="/static/img/logo.png" alt="Treening">
+      </a>
       <div class="header-intro">
-        <p class="eyebrow">TREENING / BRANCHING STUDY</p>
         <h1>让一个问题，长出自己的路径</h1>
-        <p class="header-copy">每个回答固定保留三个出口：验收、追问，以及一个由你命名的其他分支。</p>
+        <p class="header-copy">每个回答固定保留三个出口：<span id="hc-check">验收</span>、<span id="hc-followup">追问</span>，以及一个由你命名的<span id="hc-custom">其他</span>分支。</p>
       </div>
       <div class="workspace-heading" aria-live="polite">
-        <p class="eyebrow">TREENING / ACTIVE WORKSPACE</p>
         <h2 id="workspace-title">未命名学习主题</h2>
-        <p class="workspace-meta" id="workspace-meta">0 个节点 · 当前深度 0</p>
       </div>
       <div class="header-actions">
         <span class="quota" id="quota-label" hidden>今日剩余 8 / 8</span>
-        <button class="button button-quiet theme-toggle" type="button" data-theme-toggle aria-pressed="false">深夜</button>
+        <label class="export-control">
+          <span class="sr-only">导出范围</span>
+          <select id="export-scope" aria-label="导出范围">
+            <option value="tree">完整知识树</option>
+            <option value="path">当前路径</option>
+            <option value="subtree">当前节点及后代</option>
+          </select>
+          <span class="sr-only">导出格式</span>
+          <select id="export-format" aria-label="导出格式">
+            <option value="md">导出 Markdown</option>
+            <option value="txt">导出 TXT</option>
+            <option value="docx">导出 DOCX</option>
+          </select>
+          <button class="text-button" id="export-button" type="button">下载</button>
+        </label>
+        <button class="theme-toggle theme-toggle-switch" type="button" data-theme-toggle aria-pressed="false">
+          <span class="theme-toggle-thumb" aria-hidden="true">
+            <svg class="theme-toggle-sun" viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="12" r="4.5"/><path d="M12 2v2.6M12 19.4V22M2 12h2.6M19.4 12H22M4.9 4.9l1.9 1.9M17.2 17.2l1.9 1.9M19.1 4.9l-1.9 1.9M6.8 17.2l-1.9 1.9"/></svg>
+            <svg class="theme-toggle-moon" viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8Z"/></svg>
+          </span>
+        </button>
         <button class="button" id="new-session-button" type="button">新主题</button>
-        <a class="button button-quiet" href="/setup" title="调整模型配置">⚙ 配置</a>
+        <a class="button button-quiet" href="/setup" title="调整模型配置" id="setup-link">⚙ 配置</a>
+        <a class="button button-quiet" href="/admin" title="管理员面板" id="admin-link" hidden>管理</a>
+        <button class="button button-quiet" id="logout-button" type="button" title="退出登录">登出</button>
       </div>
     </header>
 
@@ -36,15 +59,17 @@
     <button class="panel-backdrop" id="panel-backdrop" type="button" aria-label="关闭面板" hidden></button>
 
     <div class="study-layout">
+      <button class="rail-collapse-toggle" id="rail-collapse-toggle" type="button" aria-controls="session-rail" aria-expanded="true" title="收起左侧栏" aria-label="收起左侧栏"></button>
       <aside class="session-rail" id="session-rail" aria-label="学习路径说明">
         <div class="rail-heading">
           <span>知识树</span>
           <span class="rail-count" id="node-count">0</span>
         </div>
+        <div class="rail-depth" id="rail-depth">深度 0</div>
         <div class="rail-legend" aria-label="分支类型">
-          <span><i class="legend-dot check"></i>验收</span>
-          <span><i class="legend-dot followup"></i>追问</span>
-          <span><i class="legend-dot custom"></i>其他</span>
+          <span><i class="legend-dot check"></i><span id="legend-check">验收</span></span>
+          <span><i class="legend-dot followup"></i><span id="legend-followup">追问</span></span>
+          <span><i class="legend-dot custom"></i><span id="legend-custom">其他</span></span>
         </div>
         <section class="history-panel" aria-label="历史主题">
           <div class="history-heading">
@@ -55,66 +80,63 @@
             <span class="history-empty">暂无历史主题</span>
           </div>
         </section>
-        <div class="bulk-visibility-controls" aria-label="节点显示控制">
-          <button class="text-button" id="conceal-all-button" type="button" disabled>全部隐藏</button>
-          <button class="text-button" id="reveal-all-button" type="button" disabled>全部显示</button>
-        </div>
       </aside>
 
       <section class="conversation-area" aria-label="学习知识树">
-        <div class="context-strip">
-          <span class="context-label">当前入口</span>
-          <span id="context-label">从新的问题开始</span>
-          <div class="graph-toolbar" aria-label="画布控制">
+        <div class="graph-viewport" id="graph-viewport" tabindex="0" aria-label="可缩放的知识树画布">
+          <div class="graph-world" id="graph-world">
+            <svg class="graph-edges" id="graph-edges" aria-hidden="true"></svg>
+            <div class="graph-nodes" id="graph-nodes"></div>
+          </div>
+          <div class="canvas-toolbar canvas-tl" aria-label="视图">
             <div class="view-switch" role="group" aria-label="知识树视图">
               <button class="view-option is-selected" id="tree-view-button" type="button" aria-pressed="true">完整树</button>
               <button class="view-option" id="nearby-view-button" type="button" aria-pressed="false">邻近分支</button>
               <button class="view-option" id="path-view-button" type="button" aria-pressed="false">当前路径</button>
             </div>
-            <span id="zoom-label">100%</span>
+          </div>
+          <div class="bulk-visibility-controls" aria-label="节点显示控制">
+            <button class="text-button" id="conceal-all-button" type="button" disabled>全部隐藏</button>
+            <button class="text-button" id="reveal-all-button" type="button" disabled>全部显示</button>
+          </div>
+          <div class="canvas-toolbar canvas-br" aria-label="画布操作">
+            <button class="text-button canvas-undo-button" id="undo-canvas-button" type="button" title="撤销上一步画布操作 (Ctrl+Z)" disabled>↶ 撤销</button>
+            <span class="canvas-toolbar-divider" aria-hidden="true"></span>
             <button class="icon-button" id="zoom-out-button" type="button" title="缩小">−</button>
+            <span id="zoom-label">100%</span>
             <button class="icon-button" id="zoom-in-button" type="button" title="放大">＋</button>
             <button class="text-button" id="fit-graph-button" type="button">回到全图</button>
-            <button class="text-button canvas-undo-button" id="undo-canvas-button" type="button" title="撤销上一步画布操作 (Ctrl+Z)" disabled>↶ 撤销</button>
-            <button class="text-button" id="clear-context-button" type="button" hidden>清除入口</button>
-            <label class="export-control">
-              <span class="sr-only">导出范围</span>
-              <select id="export-scope" aria-label="导出范围">
-                <option value="tree">完整知识树</option>
-                <option value="path">当前路径</option>
-                <option value="subtree">当前节点及后代</option>
-              </select>
-              <span class="sr-only">导出格式</span>
-              <select id="export-format" aria-label="导出格式">
-                <option value="md">导出 Markdown</option>
-                <option value="txt">导出 TXT</option>
-                <option value="docx">导出 DOCX</option>
-              </select>
-              <button class="text-button" id="export-button" type="button">下载</button>
-            </label>
-          </div>
-        </div>
-
-        <div class="graph-viewport" id="graph-viewport" tabindex="0" aria-label="可缩放的知识树画布">
-          <div class="graph-world" id="graph-world">
-            <svg class="graph-edges" id="graph-edges" aria-hidden="true"></svg>
-            <div class="graph-nodes" id="graph-nodes"></div>
           </div>
           <aside class="minimap" id="minimap" hidden aria-label="知识树总览">
             <div class="minimap-title">OVERVIEW</div>
             <svg id="minimap-svg" role="img" aria-label="知识树缩略图"></svg>
           </aside>
           <div class="empty-state" id="empty-state">
-            <span class="empty-mark">✦</span>
-            <h2>先放进来一个真正困扰你的问题</h2>
-            <p>回答会成为树的根。之后每一轮都从三个出口继续，路径由你决定。</p>
+            <div class="empty-hero">
+              <span class="empty-mark"><!-- 占位树苗图标：替换成你设计的最终版即可 -->
+                <svg viewBox="0 0 48 48" fill="none" aria-hidden="true">
+                  <path class="stem" d="M24 42V22" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>
+                  <path class="leaf" d="M24 26C24 26 13.5 24 10 14C17 12.5 24 14 24 26Z" fill="currentColor" opacity=".5"/>
+                  <path class="leaf" d="M24 30C24 30 34.5 28 38 18C31 16.5 24 18 24 30Z" fill="currentColor" opacity=".9"/>
+                  <circle class="dot" cx="24" cy="15" r="2.4" fill="currentColor"/>
+                </svg>
+              </span>
+              <p class="empty-eyebrow">从这里开始</p>
+              <h2>先放进来一个真正困扰你的问题</h2>
+              <p>回答会成为树的根。之后每一轮都从三个出口继续，路径由你决定。</p>
+              <div class="empty-branches" aria-hidden="true">
+                <span class="eb eb-check" id="eb-check">验收</span>
+                <span class="eb eb-followup" id="eb-followup">追问</span>
+                <span class="eb eb-custom" id="eb-custom">＋ 其他</span>
+              </div>
+            </div>
           </div>
         </div>
 
         <section class="composer" aria-label="发送学习问题">
           <div class="composer-tools">
-            <button class="suggestion" data-interaction="followup" type="button">追问细节</button>
             <button class="suggestion" data-interaction="check" type="button">验收理解</button>
+            <button class="suggestion" data-interaction="followup" type="button">追问细节</button>
             <button class="suggestion" data-interaction="custom" type="button">＋ 其他分支</button>
             <button class="suggestion" data-interaction="skip" type="button">新开问题</button>
           </div>
@@ -149,6 +171,20 @@
             <span class="reader-concealed-summary" id="reader-concealed-summary"></span>
             <button class="text-button" id="reader-reveal-button" type="button">显示内容</button>
           </div>
+          <section class="reader-deconstruction" id="reader-deconstruction" hidden aria-label="节点拆解">
+            <div class="decon-block decon-contradiction">
+              <span class="decon-label">矛盾论 · 认识拆解</span>
+              <p class="decon-body" id="reader-decon-contradiction"></p>
+            </div>
+            <div class="decon-block decon-practice">
+              <span class="decon-label">实践论 · 行动指向</span>
+              <p class="decon-body" id="reader-decon-practice"></p>
+            </div>
+            <div class="decon-block decon-questions">
+              <span class="decon-label">问题 · 验收 / 反思 / 启发</span>
+              <div class="decon-question-list" id="reader-decon-questions"></div>
+            </div>
+          </section>
           <section class="reader-context" id="reader-context" aria-label="节点上下文">
             <div class="reader-context-block">
               <span class="reader-context-label">当前路径</span>
@@ -183,6 +219,6 @@
 <script src="/static/js/view-state.js?v=20260804-3" defer></script>
 <script src="/static/js/layout-state.js?v=20260804-2" defer></script>
 <script src="/static/js/history-state.js?v=20260804-2" defer></script>
-<script src="/static/js/tree.js?v=20260804-25" defer></script>
+<script src="/static/js/tree.js?v=20260807-17" defer></script>
 </body>
 </html>

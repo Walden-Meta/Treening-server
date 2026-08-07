@@ -46,11 +46,6 @@ class TreeStore:
         finally:
             conn.close()
 
-    def ping(self) -> None:
-        """轻量探活：确认 SQLite 可读（healthcheck 用）。"""
-        with self._connection() as conn:
-            conn.execute("SELECT 1").fetchone()
-
     def _ensure_schema(self) -> None:
         with self._connection() as conn:
             conn.execute("PRAGMA journal_mode = WAL")
@@ -112,6 +107,42 @@ class TreeStore:
                     used INTEGER NOT NULL DEFAULT 0,
                     PRIMARY KEY(scope, scope_key, window_start)
                 );
+
+                CREATE TABLE IF NOT EXISTS users (
+                    id TEXT PRIMARY KEY,
+                    username TEXT NOT NULL UNIQUE,
+                    password_hash TEXT NOT NULL,
+                    role TEXT NOT NULL DEFAULT 'user',
+                    is_active INTEGER NOT NULL DEFAULT 1,
+                    email TEXT,
+                    created_at TEXT NOT NULL,
+                    last_login_at TEXT,
+                    last_login_ip TEXT,
+                    last_seen_at TEXT,
+                    last_seen_ip TEXT
+                );
+
+                CREATE TABLE IF NOT EXISTS password_resets (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    token_hash TEXT NOT NULL UNIQUE,
+                    created_at TEXT NOT NULL,
+                    expires_at TEXT NOT NULL,
+                    used_at TEXT,
+                    ip TEXT NOT NULL DEFAULT ''
+                );
+
+                CREATE INDEX IF NOT EXISTS ix_password_resets_user
+                    ON password_resets(user_id);
+
+                CREATE TABLE IF NOT EXISTS user_configs (
+                    user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+                    persona TEXT NOT NULL DEFAULT '',
+                    branch_labels TEXT NOT NULL DEFAULT '{}',
+                    deconstruction_enabled TEXT NOT NULL DEFAULT '[]',
+                    layout_prefs TEXT NOT NULL DEFAULT '{}',
+                    updated_at TEXT NOT NULL DEFAULT ''
+                );
                 """
             )
             existing_columns = {
@@ -121,6 +152,21 @@ class TreeStore:
             if "ip_address" not in existing_columns:
                 conn.execute(
                     "ALTER TABLE quiz_jobs ADD COLUMN ip_address TEXT NOT NULL DEFAULT ''"
+                )
+            user_columns = {
+                row["name"]
+                for row in conn.execute("PRAGMA table_info(users)").fetchall()
+            }
+            for col in ("last_login_ip", "last_seen_at", "last_seen_ip", "email"):
+                if col not in user_columns:
+                    conn.execute(f"ALTER TABLE users ADD COLUMN {col} TEXT")
+            user_config_columns = {
+                row["name"]
+                for row in conn.execute("PRAGMA table_info(user_configs)").fetchall()
+            }
+            if "layout_prefs" not in user_config_columns:
+                conn.execute(
+                    "ALTER TABLE user_configs ADD COLUMN layout_prefs TEXT NOT NULL DEFAULT '{}'"
                 )
             session_columns = {
                 row["name"]
@@ -243,9 +289,11 @@ class TreeStore:
         user_id: str,
         limit: int = 20,
         include_archived: bool = False,
+        include_drafts: bool = False,
     ) -> list[dict[str, Any]]:
         with self._connection() as conn:
             status_filter = "" if include_archived else "AND s.status = 'active'"
+            draft_filter = "" if include_drafts else "HAVING COUNT(n.id) > 0"
             rows = conn.execute(
                 f"""
                 SELECT s.*, COUNT(n.id) AS node_count,
@@ -263,6 +311,7 @@ class TreeStore:
                 LEFT JOIN quiz_nodes n ON n.session_id = s.id
                 WHERE s.user_id = ? {status_filter}
                 GROUP BY s.id
+                {draft_filter}
                 ORDER BY s.updated_at DESC
                 LIMIT ?
                 """,
@@ -469,6 +518,38 @@ class TreeStore:
             node_id,
             {"layout": layout},
         )
+
+    def clear_user_layouts(self, user_id: str) -> int:
+        """移除某用户所有节点的已保存 layout（保留 job_id/model 等其它元数据）。
+
+        全局布局偏好变更时调用，让知识树完全按新参数重排，
+        避免历史手动摆放的节点钉住旧位置/旧尺寸。
+        """
+        with self._connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT id, metadata_json FROM quiz_nodes
+                WHERE session_id IN (
+                    SELECT id FROM quiz_sessions WHERE user_id = ?
+                )
+                """,
+                (user_id,),
+            ).fetchall()
+            count = 0
+            for row in rows:
+                try:
+                    metadata = json.loads(row["metadata_json"] or "{}")
+                except (ValueError, TypeError):
+                    continue
+                if not isinstance(metadata, dict) or "layout" not in metadata:
+                    continue
+                metadata.pop("layout", None)
+                conn.execute(
+                    "UPDATE quiz_nodes SET metadata_json = ? WHERE id = ?",
+                    (json.dumps(metadata, ensure_ascii=False), row["id"]),
+                )
+                count += 1
+            return count
 
     def delete_node_subtree(
         self,
@@ -798,3 +879,227 @@ class TreeStore:
         raw_metadata = data.pop("metadata_json", None)
         data["metadata"] = json.loads(raw_metadata) if raw_metadata else None
         return data
+
+    # ── 用户（账号体系） ──
+
+    def count_users(self) -> int:
+        with self._connection() as conn:
+            row = conn.execute("SELECT COUNT(*) AS n FROM users").fetchone()
+            return int(row["n"]) if row and row["n"] else 0
+
+    def create_user(
+        self, username: str, password_hash: str, role: str = "user", email: str = ""
+    ) -> dict[str, Any] | None:
+        user_id = _new_id()
+        try:
+            with self._connection() as conn:
+                conn.execute(
+                    """
+                    INSERT INTO users(id, username, password_hash, role, is_active, email, created_at)
+                    VALUES (?, ?, ?, ?, 1, ?, ?)
+                    """,
+                    (user_id, username, password_hash, role, email or None, _now()),
+                )
+        except sqlite3.IntegrityError:
+            return None  # 用户名已存在
+        return self.get_user_by_id(user_id)
+
+    def get_user_by_username(self, username: str) -> dict[str, Any] | None:
+        with self._connection() as conn:
+            row = conn.execute(
+                "SELECT * FROM users WHERE username = ?", (username,)
+            ).fetchone()
+        return dict(row) if row else None
+
+    def get_user_by_id(self, user_id: str) -> dict[str, Any] | None:
+        with self._connection() as conn:
+            row = conn.execute(
+                "SELECT * FROM users WHERE id = ?", (user_id,)
+            ).fetchone()
+        return dict(row) if row else None
+
+    def list_users(self) -> list[dict[str, Any]]:
+        with self._connection() as conn:
+            rows = conn.execute(
+                "SELECT * FROM users ORDER BY created_at ASC"
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def set_user_password(self, user_id: str, password_hash: str) -> None:
+        with self._connection() as conn:
+            conn.execute(
+                "UPDATE users SET password_hash = ? WHERE id = ?",
+                (password_hash, user_id),
+            )
+
+    def set_user_email(self, user_id: str, email: str) -> None:
+        with self._connection() as conn:
+            conn.execute(
+                "UPDATE users SET email = ? WHERE id = ?", (email or None, user_id)
+            )
+
+    # ── 密码重置令牌 ──
+
+    def create_password_reset(
+        self, user_id: str, token_hash: str, expires_at: str, ip: str = ""
+    ) -> int:
+        with self._connection() as conn:
+            cur = conn.execute(
+                """
+                INSERT INTO password_resets(user_id, token_hash, created_at, expires_at, ip)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (user_id, token_hash, _now(), expires_at, ip),
+            )
+            return int(cur.lastrowid)
+
+    def find_password_reset(self, token_hash: str) -> dict[str, Any] | None:
+        with self._connection() as conn:
+            row = conn.execute(
+                "SELECT * FROM password_resets WHERE token_hash = ?",
+                (token_hash,),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def mark_password_reset_used(self, reset_id: int) -> None:
+        with self._connection() as conn:
+            conn.execute(
+                "UPDATE password_resets SET used_at = ? WHERE id = ? AND used_at IS NULL",
+                (_now(), reset_id),
+            )
+
+    def delete_expired_password_resets(self) -> None:
+        """清理过期且未使用的重置记录（防表无限膨胀）。"""
+        now = _now()
+        with self._connection() as conn:
+            conn.execute("DELETE FROM password_resets WHERE expires_at < ?", (now,))
+
+    def set_user_active(self, user_id: str, is_active: bool) -> None:
+        with self._connection() as conn:
+            conn.execute(
+                "UPDATE users SET is_active = ? WHERE id = ?",
+                (1 if is_active else 0, user_id),
+            )
+
+    def set_user_role(self, user_id: str, role: str) -> None:
+        with self._connection() as conn:
+            conn.execute(
+                "UPDATE users SET role = ? WHERE id = ?", (role, user_id)
+            )
+
+    def touch_user_login(self, user_id: str, ip: str = "") -> None:
+        with self._connection() as conn:
+            conn.execute(
+                "UPDATE users SET last_login_at = ?, last_login_ip = ? WHERE id = ?",
+                (_now(), ip, user_id),
+            )
+
+    def touch_user_activity(self, user_id: str, ip: str = "") -> None:
+        """记录用户最近活跃时间与 IP（供管理面板在线状态展示）。
+
+        由调用方按频率节流，避免每个请求都写库。
+        """
+        with self._connection() as conn:
+            conn.execute(
+                "UPDATE users SET last_seen_at = ?, last_seen_ip = ? WHERE id = ?",
+                (_now(), ip, user_id),
+            )
+
+    def delete_user(self, user_id: str) -> None:
+        with self._connection() as conn:
+            # sessions 级联删 nodes/jobs；usage 按 user scope 清理；
+            # user_configs 由 users ON DELETE CASCADE 级联删除
+            conn.execute("DELETE FROM quiz_sessions WHERE user_id = ?", (user_id,))
+            conn.execute(
+                "DELETE FROM quiz_usage WHERE scope = 'user' AND scope_key = ?",
+                (user_id,),
+            )
+            conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
+
+    # ---------- 用户级配置（persona / 命名 / 拆解开关，按用户隔离） ----------
+
+    def get_user_config(self, user_id: str) -> dict[str, Any] | None:
+        """读取用户配置；无记录返回 None（调用方回退默认值）。"""
+        with self._connection() as conn:
+            row = conn.execute(
+                "SELECT * FROM user_configs WHERE user_id = ?", (user_id,)
+            ).fetchone()
+        if not row:
+            return None
+        try:
+            branch_labels = json.loads(row["branch_labels"] or "{}")
+        except (ValueError, TypeError):
+            branch_labels = {}
+        try:
+            deconstruction_enabled = json.loads(row["deconstruction_enabled"] or "[]")
+        except (ValueError, TypeError):
+            deconstruction_enabled = []
+        try:
+            layout_prefs = json.loads(row["layout_prefs"] or "{}")
+        except (ValueError, TypeError):
+            layout_prefs = {}
+        return {
+            "persona": row["persona"] or "",
+            "branch_labels": branch_labels if isinstance(branch_labels, dict) else {},
+            "deconstruction_enabled": (
+                deconstruction_enabled if isinstance(deconstruction_enabled, list) else []
+            ),
+            "layout_prefs": layout_prefs if isinstance(layout_prefs, dict) else {},
+            "updated_at": row["updated_at"] or "",
+        }
+
+    def has_user_config(self, user_id: str) -> bool:
+        with self._connection() as conn:
+            row = conn.execute(
+                "SELECT 1 FROM user_configs WHERE user_id = ?", (user_id,)
+            ).fetchone()
+        return row is not None
+
+    def save_user_config(
+        self,
+        user_id: str,
+        *,
+        persona: str | None = None,
+        branch_labels: dict[str, str] | None = None,
+        deconstruction_enabled: list[str] | None = None,
+        layout_prefs: dict[str, float] | None = None,
+    ) -> dict[str, Any]:
+        """写入用户配置（UPSERT）。只更新传入的字段，其余保持不变。"""
+        current = self.get_user_config(user_id) or {}
+        merged = {
+            "persona": current.get("persona", "") if persona is None else persona,
+            "branch_labels": (
+                current.get("branch_labels", {}) if branch_labels is None else branch_labels
+            ),
+            "deconstruction_enabled": (
+                current.get("deconstruction_enabled", [])
+                if deconstruction_enabled is None
+                else deconstruction_enabled
+            ),
+            "layout_prefs": (
+                current.get("layout_prefs", {}) if layout_prefs is None else layout_prefs
+            ),
+        }
+        with self._connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO user_configs (user_id, persona, branch_labels,
+                                          deconstruction_enabled, layout_prefs, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(user_id) DO UPDATE SET
+                    persona = excluded.persona,
+                    branch_labels = excluded.branch_labels,
+                    deconstruction_enabled = excluded.deconstruction_enabled,
+                    layout_prefs = excluded.layout_prefs,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    user_id,
+                    merged["persona"],
+                    json.dumps(merged["branch_labels"], ensure_ascii=False),
+                    json.dumps(merged["deconstruction_enabled"], ensure_ascii=False),
+                    json.dumps(merged["layout_prefs"], ensure_ascii=False),
+                    _now(),
+                ),
+            )
+        return merged

@@ -3,49 +3,192 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Treening · 首次配置</title>
-<script src="/static/js/theme.js?v=20260804-1"></script>
-<link rel="stylesheet" href="/static/css/tree.css?v=20260804-15">
+<title>Treening · 配置</title>
+<link rel="icon" type="image/png" href="/static/img/logo.png">
+<script src="/static/js/theme.js?v=20260807-08"></script>
+<link rel="stylesheet" href="/static/css/tree.css?v=20260807-18">
+<style>
+  .admin-shell { max-width: 860px; margin: 0 auto; padding: 28px 20px 60px; }
+  .admin-card { border: 1px solid var(--quiz-line); border-radius: 14px; padding: 18px 20px; margin-bottom: 18px; }
+  .admin-card h2 { margin: 0 0 6px; font-size: 17px; }
+  .admin-card .hint { margin: 0 0 14px; color: var(--quiz-faint); font-size: 12px; line-height: 1.6; }
+  .admin-card label { display: block; margin: 10px 0 4px; color: var(--quiz-faint); font-size: 12px; }
+  .admin-card label:first-child { margin-top: 0; }
+  .admin-card input[type="checkbox"] { width: 16px; height: 16px; padding: 0; flex: 0 0 auto; }
+  .key-hint { margin: 0 0 8px; color: var(--quiz-faint); font-size: 11px; }
+  .btn-row { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .grid-3 { display: grid; grid-template-columns: repeat(3,1fr); gap: 10px; }
+  @media (max-width: 640px) { .grid-2, .grid-3 { grid-template-columns: 1fr; } }
+  .check-row { display: flex; flex-wrap: wrap; gap: 10px 18px; }
+  .check-row label { display: flex; align-items: center; gap: 6px; margin: 0; font-size: 13px; cursor: pointer; }
+  .mini-btn { padding: 4px 10px; font-size: 12px; border: 1px solid var(--quiz-line); border-radius: 8px; background: transparent; color: var(--quiz-text); cursor: pointer; }
+  .mini-btn:hover { border-color: var(--quiz-accent, #3b82f6); color: var(--quiz-accent, #3b82f6); }
+  .mini-btn.danger:hover { border-color: #dc2626; color: #dc2626; }
+  .form-error { min-height: 18px; margin: 6px 0 0; font-size: 12px; }
+  .nonadmin-note { margin: -4px 0 16px; padding: 10px 14px; border: 1px dashed var(--quiz-line); border-radius: 10px; color: var(--quiz-faint); font-size: 12px; line-height: 1.6; }
+</style>
 </head>
 <body>
-<main class="quiz-shell">
-  <section class="access-panel" aria-labelledby="setup-title">
-    <button class="button button-quiet theme-toggle setup-theme-toggle" type="button" data-theme-toggle aria-pressed="false">深夜</button>
-    <span class="eyebrow">TREENING / FIRST RUN</span>
-    <h1 id="setup-title">接入你的模型服务</h1>
-    <p>Treening 使用你自己的 API Key（BYO-Key），支持任何 OpenAI 兼容接口。配置只保存在本机。</p>
+<main class="admin-shell">
+  <div class="admin-head" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px">
+    <h1 id="setup-title" style="margin:0;font-size:20px">配置</h1>
+    <div style="display:flex;gap:8px">
+      <button class="theme-toggle theme-toggle-switch" type="button" data-theme-toggle aria-pressed="false">
+        <span class="theme-toggle-thumb" aria-hidden="true">
+          <svg class="theme-toggle-sun" viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="12" r="4.5"/><path d="M12 2v2.6M12 19.4V22M2 12h2.6M19.4 12H22M4.9 4.9l1.9 1.9M17.2 17.2l1.9 1.9M19.1 4.9l-1.9 1.9M6.8 17.2l-1.9 1.9"/></svg>
+          <svg class="theme-toggle-moon" viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8Z"/></svg>
+        </span>
+      </button>
+      <a class="button button-quiet" href="/" id="setup-back" hidden>返回学习空间</a>
+      <a class="button button-quiet" href="/?skip=1" id="setup-skip">跳过配置</a>
+    </div>
+  </div>
 
+  <p id="setup-nonadmin-note" hidden class="nonadmin-note">
+    模型由管理员统一配置，这里只管理你自己的个性化设置（人设、命名、拆解、布局）。
+  </p>
+
+  <section class="admin-card" id="setup-register" hidden>
+    <h2>创建管理员账号</h2>
+    <p class="hint">首次启动：创建管理员账号，已有学习数据会自动并入。之后管理员可在配置页添加更多用户。</p>
+    <label for="reg-username">用户名</label>
+    <input id="reg-username" type="text" maxlength="20" autocomplete="username">
+    <label for="reg-password">密码（8-64 位）</label>
+    <input id="reg-password" type="password" minlength="8" maxlength="64" autocomplete="new-password">
+    <label for="reg-password2">确认密码</label>
+    <input id="reg-password2" type="password" autocomplete="new-password">
+    <p class="form-error" id="register-error" role="alert"></p>
+    <div class="btn-row">
+      <button class="button button-primary" id="register-submit" type="button">创建并进入</button>
+    </div>
+  </section>
+
+  <section class="admin-card" id="setup-global">
+    <h2>模型服务（全局）</h2>
+    <p class="hint">Treening 使用你自己的 API Key（BYO-Key），支持任何 OpenAI 兼容接口。配置只保存在本机。</p>
     <form id="setup-form">
       <label for="setup-api-key">API Key</label>
       <input id="setup-api-key" type="password" placeholder="sk-..." autocomplete="off">
-      <p id="setup-key-hint" hidden style="margin:0 0 8px;color:var(--quiz-faint);font-size:11px"></p>
-
+      <p id="setup-key-hint" hidden class="key-hint"></p>
       <label for="setup-api-url">接口地址</label>
       <input id="setup-api-url" type="text" value="https://api.deepseek.com/chat/completions">
-
       <label for="setup-model">模型</label>
       <input id="setup-model" type="text" value="deepseek-chat">
-
       <p class="form-error" id="setup-error" role="alert"></p>
-
-      <div class="access-row">
+      <div class="btn-row">
         <button class="button" id="setup-test" type="button">测试连接</button>
         <button class="button button-primary" type="submit">保存并开始</button>
       </div>
     </form>
+  </section>
 
-    <div id="setup-existing" hidden style="margin-top:18px;border-top:1px solid var(--quiz-line);padding-top:14px">
-      <p class="eyebrow" style="margin:0 0 10px">没有 Key？</p>
-      <button class="button button-primary" id="setup-trial" type="button" style="width:100%">已有配置 · 直接试用 →</button>
-      <p style="margin:8px 0 0;color:var(--quiz-faint);font-size:11px">使用服务器已配置的模型服务，无需自己的 API Key</p>
+  <section class="admin-card persona-editor">
+    <h2>自定义人设（全局）</h2>
+    <p class="hint">全局人设，作用于所有对话，<b>不按主题区分</b>。留空 = 使用 Treening 默认教学风格。<br>
+      想要不同主题/节点的分化，可以写「无条件跟随对话内的指令」这类规则，由模型按你的指示分化。保存后立即生效，无需重启。</p>
+    <textarea id="setup-persona" rows="7"
+      placeholder="例如：你是一名有二十年嵌入式开发经验的老工程师，说话直接，先给结论再讲理由。"></textarea>
+    <p class="form-error" id="persona-error" role="alert"></p>
+    <div class="btn-row">
+      <button class="button" id="setup-persona-save" type="button">保存人设</button>
     </div>
+  </section>
 
-    <p style="margin-top:18px">
-      <a class="text-button" id="setup-back" href="/" hidden>返回学习空间</a>
-      <a class="text-button" id="setup-skip" href="/?skip=1">跳过配置，先浏览已有知识树</a>
-    </p>
+  <section class="admin-card persona-editor">
+    <h2>分支节点命名（全局）</h2>
+    <p class="hint">三个固定出口的显示名，作用于所有主题。留空 = 使用默认（验收 / 追问 / 其他）。命名只影响界面展示，不改变模型内部的提问逻辑。保存后立即生效，无需重启。</p>
+    <div class="grid-3">
+      <div>
+        <label for="label-check">① 验收</label>
+        <input id="label-check" type="text" maxlength="6" autocomplete="off">
+      </div>
+      <div>
+        <label for="label-followup">② 追问</label>
+        <input id="label-followup" type="text" maxlength="6" autocomplete="off">
+      </div>
+      <div>
+        <label for="label-custom">③ 其他</label>
+        <input id="label-custom" type="text" maxlength="6" autocomplete="off">
+      </div>
+    </div>
+    <p class="form-error" id="branch-labels-error" role="alert"></p>
+    <div class="btn-row">
+      <button class="button" id="setup-branch-labels-save" type="button">保存命名</button>
+    </div>
+  </section>
+
+  <section class="admin-card persona-editor">
+    <h2>画布布局（全局）</h2>
+    <p class="hint">作用于所有主题的知识树排版，单位 px，保存后刷新学习空间即可看到新的布局。<b>注意：修改任一数值会重置所有节点的手动摆放位置</b>，整棵树按新参数重新排版。默认：线长 44 / 82，卡片 300 × 180。</p>
+    <div class="grid-2">
+      <div>
+        <label for="layout-qa-gap">一组问答之间的线长</label>
+        <input id="layout-qa-gap" type="number" min="16" max="200" step="1" inputmode="numeric">
+      </div>
+      <div>
+        <label for="layout-branch-gap">不同问答之间衔接的线长</label>
+        <input id="layout-branch-gap" type="number" min="40" max="300" step="1" inputmode="numeric">
+      </div>
+      <div>
+        <label for="layout-node-width">卡片默认宽</label>
+        <input id="layout-node-width" type="number" min="220" max="640" step="1" inputmode="numeric">
+      </div>
+      <div>
+        <label for="layout-node-height">卡片默认高</label>
+        <input id="layout-node-height" type="number" min="90" max="1200" step="1" inputmode="numeric">
+      </div>
+    </div>
+    <p class="form-error" id="layout-prefs-error" role="alert"></p>
+    <div class="btn-row">
+      <button class="button" id="setup-layout-prefs-save" type="button">保存布局</button>
+    </div>
+  </section>
+
+  <section class="admin-card persona-editor">
+    <h2>拆解模块（全局）</h2>
+    <p class="hint">每个回答完成后附带的「镜片拆解」模块，默认全开。不想要的部分可关掉——关闭后不再生成，界面自动隐藏，不影响其他模块。保存后立即生效，无需重启。</p>
+    <div class="check-row">
+      <label><input type="checkbox" id="decon-contradiction" value="contradiction">矛盾论拆解</label>
+      <label><input type="checkbox" id="decon-practice" value="practice">实践论拆解</label>
+      <label><input type="checkbox" id="decon-check-question" value="check_question">验收问题</label>
+      <label><input type="checkbox" id="decon-reflect-question" value="reflect_question">反思问题</label>
+      <label><input type="checkbox" id="decon-inspire-question" value="inspire_question">启发问题</label>
+    </div>
+    <p class="form-error" id="deconstruction-error" role="alert"></p>
+    <div class="btn-row">
+      <button class="button" id="setup-deconstruction-save" type="button">保存拆解设置</button>
+    </div>
+  </section>
+
+  <section class="admin-card persona-editor">
+    <h2>绑定邮箱</h2>
+    <p class="hint">用于忘记密码时接收重置邮件。选填，留空表示不绑定；需要验证当前密码。<span id="email-mail-status"></span></p>
+    <label for="setup-email">邮箱</label>
+    <input id="setup-email" type="email" maxlength="254" autocomplete="email" placeholder="name@example.com">
+    <label for="email-password">当前密码（验证身份）</label>
+    <input id="email-password" type="password" autocomplete="current-password">
+    <p class="form-error" id="email-error" role="alert"></p>
+    <div class="btn-row">
+      <button class="button" id="setup-email-save" type="button">保存邮箱</button>
+    </div>
+  </section>
+
+  <section class="admin-card persona-editor">
+    <h2>修改密码</h2>
+    <p class="hint">需验证当前密码。新密码 8-64 位，改完立即生效，其他登录会保持。修改成功后建议用新密码重新登录。</p>
+    <label for="old-password">当前密码</label>
+    <input id="old-password" type="password" autocomplete="current-password">
+    <label for="new-password">新密码（8-64 位）</label>
+    <input id="new-password" type="password" minlength="8" maxlength="64" autocomplete="new-password">
+    <label for="new-password2">确认新密码</label>
+    <input id="new-password2" type="password" autocomplete="new-password">
+    <p class="form-error" id="password-error" role="alert"></p>
+    <div class="btn-row">
+      <button class="button" id="setup-password-save" type="button">修改密码</button>
+    </div>
   </section>
 </main>
-<script src="/static/js/setup.js?v=20260804-2" defer></script>
+<script src="/static/js/setup.js?v=20260807-2" defer></script>
 </body>
 </html>

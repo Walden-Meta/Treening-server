@@ -17,7 +17,10 @@
     if (!root?.document) return;
     root.document.querySelectorAll("[data-theme-toggle]").forEach((button) => {
       const dark = theme === "dark";
-      button.textContent = dark ? "日间" : "深夜";
+      // 滑动开关（含 .theme-toggle-thumb）保留内部太阳/月亮结构，仅更新无障碍状态
+      if (!button.querySelector(".theme-toggle-thumb")) {
+        button.textContent = dark ? "日间" : "深夜";
+      }
       button.setAttribute("aria-label", dark ? "切换到日间模式" : "切换到深夜模式");
       button.setAttribute("aria-pressed", String(dark));
     });

@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Treening · 登录</title>
+<link rel="icon" type="image/png" href="/static/img/logo.png">
+<script src="/static/js/theme.js?v=20260807-08"></script>
+<link rel="stylesheet" href="/static/css/tree.css?v=20260807-12">
+</head>
+<body>
+<main class="quiz-shell">
+  <section class="access-panel" aria-labelledby="login-title">
+    <button class="theme-toggle theme-toggle-switch setup-theme-toggle" type="button" data-theme-toggle aria-pressed="false">
+      <span class="theme-toggle-thumb" aria-hidden="true">
+        <svg class="theme-toggle-sun" viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="12" r="4.5"/><path d="M12 2v2.6M12 19.4V22M2 12h2.6M19.4 12H22M4.9 4.9l1.9 1.9M17.2 17.2l1.9 1.9M19.1 4.9l-1.9 1.9M6.8 17.2l-1.9 1.9"/></svg>
+        <svg class="theme-toggle-moon" viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8Z"/></svg>
+      </span>
+    </button>
+
+    <!-- 登录 -->
+    <div id="login-view">
+      <span class="eyebrow">TREENING / SIGN IN</span>
+      <h1 id="login-title">登录学习空间</h1>
+      <p>使用你的账号进入知识树。</p>
+      <form id="login-form">
+        <label for="login-username">用户名</label>
+        <input id="login-username" type="text" autocomplete="username" required>
+        <label for="login-password">密码</label>
+        <input id="login-password" type="password" autocomplete="current-password" required>
+        <p class="form-error" id="login-error" role="alert"></p>
+        <div class="access-row">
+          <button class="button button-primary" type="submit">登录</button>
+        </div>
+      </form>
+      <p style="margin-top:16px;font-size:13px">
+        <span id="register-hint" hidden>
+          还没有账号？<a class="text-button" href="#" id="go-register">注册一个</a>
+        </span>
+        <span id="register-closed" hidden style="color:var(--quiz-faint)">注册暂未开放，请联系管理员。</span>
+        <span id="forgot-sep" hidden> · </span>
+        <a class="text-button" href="/forgot" id="forgot-link" hidden>忘记密码？</a>
+      </p>
+    </div>
+
+    <!-- 注册 -->
+    <div id="register-view" hidden>
+      <span class="eyebrow">TREENING / SIGN UP</span>
+      <h1 id="register-title">创建账号</h1>
+      <p>注册后即可开始学习，人设与知识树各自独立。</p>
+      <form id="register-form">
+        <label for="reg-username">用户名</label>
+        <input id="reg-username" type="text" maxlength="20" autocomplete="username" required>
+        <label for="reg-password">密码（8-64 位）</label>
+        <input id="reg-password" type="password" minlength="8" maxlength="64" autocomplete="new-password" required>
+        <label for="reg-password2">确认密码</label>
+        <input id="reg-password2" type="password" autocomplete="new-password" required>
+        <label for="reg-email">邮箱（选填，用于忘记密码找回）</label>
+        <input id="reg-email" type="email" maxlength="254" autocomplete="email" placeholder="name@example.com">
+        <p class="form-error" id="register-error" role="alert"></p>
+        <div class="access-row">
+          <button class="button button-primary" type="submit">注册并进入</button>
+        </div>
+      </form>
+      <p style="margin-top:16px;font-size:13px">
+        已有账号？<a class="text-button" href="#" id="go-login">返回登录</a>
+      </p>
+    </div>
+  </section>
+</main>
+<script>
+(() => {
+  "use strict";
+  const loginView = document.getElementById("login-view");
+  const registerView = document.getElementById("register-view");
+  const errorEl = document.getElementById("login-error");
+  const registerError = document.getElementById("register-error");
+
+  // 登录页是否显示注册入口/忘记密码：首启建管理员 或 开放注册开启
+  fetch("/api/auth/status").then((r) => r.json()).then((d) => {
+    const hint = document.getElementById("register-hint");
+    const closed = document.getElementById("register-closed");
+    if (d.has_users && !d.open_registration) {
+      if (hint) hint.hidden = true;
+      if (closed) closed.hidden = false;
+    } else if (hint) {
+      hint.hidden = false;
+    }
+    // 有用户存在时，登录框显示「忘记密码」入口
+    const forgotLink = document.getElementById("forgot-link");
+    const sep = document.getElementById("forgot-sep");
+    if (d.has_users && forgotLink) {
+      forgotLink.hidden = false;
+      if (sep) sep.hidden = false;
+    }
+  }).catch(() => {});
+
+  document.getElementById("go-register")?.addEventListener("click", (e) => {
+    e.preventDefault();
+    errorEl.textContent = "";
+    loginView.hidden = true;
+    registerView.hidden = false;
+    document.getElementById("reg-username").focus();
+  });
+  document.getElementById("go-login")?.addEventListener("click", (e) => {
+    e.preventDefault();
+    registerError.textContent = "";
+    registerView.hidden = true;
+    loginView.hidden = false;
+    document.getElementById("login-username").focus();
+  });
+
+  document.getElementById("login-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    errorEl.textContent = "";
+    const btn = e.currentTarget.querySelector("button[type=submit]");
+    btn.disabled = true; btn.textContent = "登录中…";
+    try {
+      const res = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          username: document.getElementById("login-username").value.trim(),
+          password: document.getElementById("login-password").value,
+        }),
+      });
+      const d = await res.json();
+      if (!res.ok || !d.ok) { errorEl.textContent = d.error || "登录失败"; return; }
+      location.href = "/";
+    } catch (_) {
+      errorEl.textContent = "无法连接服务，请重试";
+    } finally {
+      btn.disabled = false; btn.textContent = "登录";
+    }
+  });
+
+  document.getElementById("register-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    registerError.textContent = "";
+    const u = document.getElementById("reg-username").value.trim();
+    const p1 = document.getElementById("reg-password").value;
+    const p2 = document.getElementById("reg-password2").value;
+    const regEmail = document.getElementById("reg-email").value.trim();
+    if (!u || !p1) { registerError.textContent = "请填写用户名和密码"; return; }
+    if (p1.length < 8 || p1.length > 64) { registerError.textContent = "密码需为 8-64 位"; return; }
+    if (p1 !== p2) { registerError.textContent = "两次输入的密码不一致"; return; }
+    if (regEmail && !/^[^@\s]+@[^@\s]+\.[^@\s]{2,}$/.test(regEmail)) {
+      registerError.textContent = "邮箱格式不正确"; return;
+    }
+    const btn = e.currentTarget.querySelector("button[type=submit]");
+    btn.disabled = true; btn.textContent = "注册中…";
+    try {
+      const res = await fetch("/api/auth/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: u, password: p1, email: regEmail }),
+      });
+      const d = await res.json();
+      if (!res.ok || !d.ok) { registerError.textContent = d.error || "注册失败"; return; }
+      location.href = "/";
+    } catch (_) {
+      registerError.textContent = "无法连接服务，请重试";
+    } finally {
+      btn.disabled = false; btn.textContent = "注册并进入";
+    }
+  });
+})();
+</script>
+</body>
+</html>

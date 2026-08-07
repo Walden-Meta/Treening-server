@@ -57,3 +57,28 @@ class Methodology:
                 path.read_text(encoding="utf-8") if path.exists() else ""
             )
         return self._prompt_cache[name]
+
+    def deconstruction_blocks(self) -> dict[str, str]:
+        """deconstruction.md 按 '## ' 标题分节，供拆解模块开关使用。
+
+        返回 dict：
+          - 'header'：文件开头的总览（标题 + 说明）
+          - 'contradiction' / 'practice' / 'check_question' /
+            'reflect_question' / 'inspire_question'：五个拆解字段各一节
+            （节内保留原标题行，便于原样回拼）
+          - 'footer'：末尾「约束」段
+        缺文件时返回空 dict，调用方自行兜底。
+        """
+        text = self.prompt("deconstruction.md")
+        if not text:
+            return {}
+        sections: dict[str, list[str]] = {}
+        current = "header"
+        for line in text.splitlines():
+            if line.startswith("## "):
+                raw = line[3:].split(" — ")[0].strip()
+                current = "footer" if raw == "约束" else (raw or "section")
+                sections.setdefault(current, []).append(line)
+                continue
+            sections.setdefault(current, []).append(line)
+        return {k: "\n".join(v).strip() for k, v in sections.items() if v}
