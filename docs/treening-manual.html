@@ -1,0 +1,607 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>Treening · 操作手册</title>
+<style>
+@page {
+  size: A4;
+  margin: 17mm 16mm 19mm 16mm;
+}
+@page { @bottom-center { content: counter(page); font-family: "Microsoft YaHei", sans-serif; font-size: 9pt; color: #999; } }
+@page { @top-center { content: "Treening · 操作手册"; font-family: "Microsoft YaHei", sans-serif; font-size: 8pt; letter-spacing: 1.5pt; color: #b3b3b3; } }
+@page :first { @top-center { content: none; } }
+
+html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+body { font-family: "Microsoft YaHei", "PingFang SC", "Hiragino Sans GB", "Segoe UI", sans-serif; font-size: 10.5pt; line-height: 1.8; color: #222; margin: 0; }
+
+/* ===== 封面页 ===== */
+.cover {
+  page-break-after: always;
+  min-height: 259mm;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+.cover .cover-eyebrow { font-size: 9pt; letter-spacing: 5pt; color: #8a9db0; text-transform: uppercase; margin: 0 0 12px; }
+.cover h1 { page-break-before: avoid; border: none; font-size: 28pt; font-weight: 700; letter-spacing: 4pt; color: #0b3d6f; margin: 0; }
+.cover h1::after { content: ""; display: block; width: 52mm; height: 1px; background: #c9d4e0; margin: 18px auto 0; }
+.cover blockquote { border: none; background: none; color: #555; max-width: 142mm; margin: 15mm auto 0; font-size: 10.5pt; line-height: 2; }
+.cover blockquote p { margin: 6px 0; }
+.cover .cover-foot { margin-top: auto; font-size: 9pt; color: #999; letter-spacing: 1pt; }
+.cover hr { display: none; }
+
+/* ===== 目录页 ===== */
+.toc { page-break-after: always; }
+.toc h1 { page-break-before: avoid; }
+.toc hr { display: none; }
+
+/* ===== 正文 ===== */
+.main h1 { page-break-before: always; }
+h1 { font-size: 16pt; line-height: 1.3; color: #0b3d6f; border-bottom: 2px solid #0b3d6f; padding-bottom: 7px; margin: 0 0 16px; page-break-after: avoid; }
+h2 { font-size: 13pt; color: #14508c; margin: 26px 0 10px; page-break-after: avoid; }
+h3 { font-size: 11.5pt; color: #2a2a2a; margin: 20px 0 8px; page-break-after: avoid; }
+h4 { font-size: 10.5pt; margin: 14px 0 6px; page-break-after: avoid; }
+p { margin: 8px 0; text-align: justify; }
+ul, ol { margin: 8px 0; padding-left: 24px; }
+li { margin: 4px 0; }
+strong { color: #111; }
+a { color: #14508c; text-decoration: none; }
+hr { border: none; border-top: 1px solid #d5d5d5; margin: 18px 0; }
+
+blockquote { margin: 12px 0; padding: 10px 16px; background: #f6f8fa; border-left: 3px solid #7aa0c9; color: #444; page-break-inside: avoid; }
+blockquote p { margin: 5px 0; }
+
+table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 9.5pt; }
+th { background: #eef3f8; border: 1px solid #c9d4e0; padding: 7px 9px; text-align: left; font-weight: 700; color: #0b3d6f; }
+td { border: 1px solid #c9d4e0; padding: 6px 9px; vertical-align: top; }
+tr { page-break-inside: avoid; }
+tbody tr:nth-child(even) { background: #fafbfd; }
+
+code { font-family: "Consolas", "Courier New", monospace; font-size: 8.8pt; background: #f2f2f2; padding: 1px 4px; border-radius: 3px; color: #b02a37; }
+pre { background: #f6f8fa; border: 1px solid #e1e4e8; border-radius: 6px; padding: 10px 14px; white-space: pre-wrap; word-break: break-all; font-family: "Consolas", "Courier New", monospace; font-size: 8.5pt; line-height: 1.55; page-break-inside: avoid; }
+pre code { background: transparent; padding: 0; color: inherit; }
+</style>
+</head>
+<body>
+<section class="cover"><p class="cover-eyebrow">TREENING / 操作手册</p><h1>Treening</h1>
+<blockquote>
+<p><strong>这是什么</strong>：Treening（Tree + Learning）—— 一棵会生长的知识树。已上线真实域名 <strong>https://treening.cc</strong>，运行在独立容器里。</p>
+<p><strong>当前形态</strong>：<strong>账号制网站</strong>。首次访问创建管理员账号，管理员可添加亲友账号；普通用户登录后使用自己的知识树。</p>
+<p><strong>一句话</strong>：把"一个真正困扰你的问题"放进来，让它长成一棵有路径的知识树。</p>
+</blockquote>
+<hr />
+<p class="cover-foot">版本 v0.2.0 ｜ 更新于 2026-08-07 ｜ https://treening.cc</p></section>
+<section class="toc"><h1>目录 · 三篇导读</h1>
+<blockquote>
+<p>这一份手册涵盖 Treening 的全部使用方式，由<strong>三篇独立成篇</strong>组成。
+三篇是<strong>同一个产品的三种视角</strong>：按模块功能、按整体布局（之字形）、按设计思路。
+<strong>三篇各自完整、互不依赖——任选一篇通读，都可以全面了解如何使用 Treening。</strong></p>
+</blockquote>
+<h2>三篇怎么选</h2>
+<table>
+<thead>
+<tr>
+<th>章节</th>
+<th>视角</th>
+<th>适合谁</th>
+<th>读完后你能得到</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>第一篇 · 按模块功能讲解</strong></td>
+<td>功能模块逐个拆解</td>
+<td>想直接查某个功能怎么用</td>
+<td>每个功能的"是什么 / 怎么用"</td>
+</tr>
+<tr>
+<td><strong>第二篇 · 按整体布局讲解</strong></td>
+<td>之字形把页面走一遍</td>
+<td>第一次打开页面、需要认路</td>
+<td>页面上每一块在哪、是干什么的</td>
+</tr>
+<tr>
+<td><strong>第三篇 · 按设计思路讲解</strong></td>
+<td>为什么这样设计</td>
+<td>想理解产品逻辑、做迭代</td>
+<td>设计取舍、交互哲学、安全策略</td>
+</tr>
+</tbody>
+</table>
+<h2>目录树</h2>
+<ul>
+<li><strong>第一篇 · 按模块功能讲解</strong>：账号体系、首次配置、个性化配置、管理员面板、学习会话、三出口分支、知识树画布、三种视图、奏折式折叠、节点管理、阅读栏、显示控制、输入框按需出现、导出、深夜模式</li>
+<li><strong>第二篇 · 按整体布局讲解</strong>：之字形走遍页面：登录 → 学习空间 → 配置 → 管理</li>
+<li><strong>第三篇 · 按设计思路讲解</strong>：画布优先、控件就近分布、按需出现、高对比交互、渐进式信息隐藏、安全策略、工程化态度</li>
+<li><strong>附 · 运维速查</strong>：生产环境命令、配置、配额与部署</li>
+</ul>
+<blockquote>
+<p><strong>三篇怎么互为补充</strong>：第一篇告诉你"每个按钮能干什么"，第二篇告诉你"这些按钮在页面的哪个位置"，第三篇告诉你"为什么要有这些按钮"。三篇讲的是同一个站、同一套操作，任选一篇即可上手，全部通读则理解最完整。</p>
+</blockquote>
+<hr />
+</section>
+<section class="main"><h1>第一篇 · 按模块功能讲解</h1>
+<h2>模块 1：账号体系（登录 / 注册 / 忘记密码）</h2>
+<ul>
+<li><strong>是什么</strong>：站点现在是<strong>账号制</strong>。没有账号的人会看到登录页；首次访问（服务器还没有任何账号时）会引导你<strong>创建管理员账号</strong>。</li>
+<li><strong>怎么用</strong>：</li>
+<li><strong>首次启动</strong>：打开站点 → 进入"创建管理员账号"页 → 填用户名 + 密码（8-64 位）→ 创建并进入；</li>
+<li><strong>普通用户</strong>：由管理员在管理面板手动创建（或开放注册开启后自助注册），然后用账号密码登录；</li>
+<li><strong>忘记密码</strong>：登录页点「忘记密码」→ 输入绑定邮箱 → 收到重置链接（需管理员在管理面板配置过邮件服务）。</li>
+<li><strong>说明</strong>：密码以 PBKDF2 盐化存储；连续 5 次登录失败会临时锁定；同一 IP 注册有频率限制。退出登录点右上角「登出」。</li>
+</ul>
+<h2>模块 2：首次配置（模型服务）</h2>
+<ul>
+<li><strong>是什么</strong>：管理员首次登录后，进入配置页填写模型服务——<strong>API Key、接口地址（默认 DeepSeek）、模型</strong>。</li>
+<li><strong>怎么用</strong>：
+  1. 打开配置页，填 <strong>API Key</strong>、<strong>接口地址</strong>、<strong>模型</strong>；
+  2. 点「测试连接」验证；
+  3. 点「保存并开始」回到学习空间；
+  4. 之后「⚙ 配置」可随时调整。</li>
+<li><strong>说明</strong>：Key 只保存在服务器本地 <code>data/settings.json</code>，页面只显示掩码，永不明文回传。普通用户看不到这一栏（由管理员统一配置）。</li>
+</ul>
+<h2>模块 3：个性化配置页（普通用户也有）</h2>
+<ul>
+<li><strong>是什么</strong>：配置页里，除模型服务外的所有栏目都是<strong>按人独立</strong>的个性化设置。</li>
+<li><strong>六项设置</strong>：</li>
+</ul>
+<table>
+<thead>
+<tr>
+<th>栏目</th>
+<th>作用</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>自定义人设</strong></td>
+<td>全局教学风格，作用于所有对话；留空用默认风格</td>
+</tr>
+<tr>
+<td><strong>分支节点命名</strong></td>
+<td>三个出口的显示名（默认 验收 / 追问 / 其他），可自定义</td>
+</tr>
+<tr>
+<td><strong>画布布局</strong></td>
+<td>全局排版参数：问答间距、衔接间距、卡片默认宽高</td>
+</tr>
+<tr>
+<td><strong>拆解模块</strong></td>
+<td>每个回答附带的"镜片拆解"开关，不想要的模块可关掉</td>
+</tr>
+<tr>
+<td><strong>绑定邮箱</strong></td>
+<td>用于忘记密码找回（可选）</td>
+</tr>
+<tr>
+<td><strong>修改密码</strong></td>
+<td>验证当前密码后改新密码</td>
+</tr>
+</tbody>
+</table>
+<ul>
+<li><strong>画布布局四个参数</strong>：</li>
+<li><strong>一组问答之间的线长</strong>（默认 44）：问题卡与回答卡之间的纵向间距；</li>
+<li><strong>不同问答之间衔接的线长</strong>（默认 82）：上一回答到下一问题的间距；</li>
+<li><strong>卡片默认宽 / 高</strong>（默认 300 × 180）：自动排版时新卡片的尺寸。</li>
+<li><strong>注意</strong>：修改布局参数会重置所有节点的手动摆放位置，整棵树按新参数重排。</li>
+</ul>
+<h2>模块 4：管理员面板（只有管理员可见）</h2>
+<ul>
+<li><strong>是什么</strong>：右上角「管理」进入，管理用户与系统设置。普通用户看不到入口。</li>
+<li><strong>功能</strong>：</li>
+<li><strong>开放注册开关</strong>：开启后登录页出现注册入口，访客可自助创建普通用户账号；</li>
+<li><strong>邮件服务</strong>：配置 SMTP（QQ 邮箱需填<strong>授权码</strong>而非登录密码），支持"发送测试邮件"验证；</li>
+<li><strong>用户管理</strong>：表格列出每位用户 —— 角色 / 状态 / 邮箱 / 主题数 / 节点数 / <strong>配额（今日用量）</strong> / 最近活跃 / 最近登录；</li>
+<li><strong>每用户操作</strong>：改密、设邮箱、<strong>配配额</strong>、设为/降为管理员、禁用/启用、删除；</li>
+<li><strong>创建用户</strong>：底部输入用户名 + 初始密码 + 邮箱 + 角色，一键创建。</li>
+<li><strong>配额管理</strong>：点某行「配额」按钮，输入 <strong>留空 = 全局默认、0 = 不限额、数字 = 每日 N 次</strong>。管理员恒不限额。</li>
+</ul>
+<h2>模块 5：学习会话（一棵树 = 一个主题）</h2>
+<ul>
+<li><strong>是什么</strong>：每次学习是一个主题，一棵知识树。可建多棵，历史全部保留，按时间自动分组。</li>
+<li><strong>怎么用</strong>：</li>
+<li><strong>开始</strong>：在输入框提出第一个问题，第一次提问才正式创建主题；</li>
+<li><strong>新主题</strong>：右上角「新主题」；</li>
+<li><strong>切换</strong>：左栏「学习轨迹」点任意一条；</li>
+<li><strong>历史分组</strong>：自动分「今天 / 最近 7 天 / 更早」；</li>
+<li><strong>当前主题</strong>：顶部显示主题名。</li>
+<li><strong>每日配额</strong>：普通用户每日有提问次数上限（默认 20 次，管理员可在管理面板按人调整），顶部会显示剩余次数，用完提示明日再来。</li>
+</ul>
+<h2>模块 6：三出口分支（核心规则）</h2>
+<ul>
+<li><strong>是什么</strong>：每个回答固定长出<strong>三个出口</strong>：<strong>验收</strong>（写下理解让系统检查）、<strong>追问</strong>（钻细节）、<strong>＋ 其他</strong>（自定义支线）。</li>
+<li><strong>怎么用</strong>：</li>
+<li>点回答卡片上的「分支」抽屉，选「验收 / 追问 / ＋其他」；</li>
+<li>或点输入框上方的「验收理解 / 追问细节 / ＋其他分支」。</li>
+<li><strong>规则</strong>：</li>
+<li>每个回答最多 3 个子分支，同一槽位不重复；</li>
+<li>只能从<strong>回答节点</strong>继续，不能从提问节点挂分支。</li>
+</ul>
+<h2>模块 7：知识树画布（核心工作区）</h2>
+<ul>
+<li><strong>是什么</strong>：整棵树的图形化空间，节点按层自动排布，彩色连线区分分支类型。<strong>画布是页面的主角。</strong></li>
+<li><strong>画布操作</strong>：</li>
+</ul>
+<table>
+<thead>
+<tr>
+<th>位置</th>
+<th>控件</th>
+<th>作用</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>左上角</strong></td>
+<td>完整树 / 邻近分支 / 当前路径</td>
+<td>切换视图模式</td>
+</tr>
+<tr>
+<td><strong>右上角</strong></td>
+<td>OVERVIEW 缩略图</td>
+<td>俯瞰全树，点击跳转</td>
+</tr>
+<tr>
+<td><strong>右上角（缩略图下）</strong></td>
+<td>全部隐藏 / 全部显示</td>
+<td>一键摘要化整棵树</td>
+</tr>
+<tr>
+<td><strong>右下角</strong></td>
+<td>撤销 ↶ / 缩放 −＋ / 回到全图</td>
+<td>画布导航与操作</td>
+</tr>
+</tbody>
+</table>
+<ul>
+<li><strong>交互</strong>：</li>
+<li><strong>缩放</strong>：滚轮悬停画布即缩放；</li>
+<li><strong>平移</strong>：空白处直接拖动；</li>
+<li><strong>拖动节点</strong>：按住卡片拖，位置自动保存；</li>
+<li><strong>调整大小</strong>：拖卡片右下角小尖，<strong>左上角固定、只拉右下角</strong>；</li>
+<li><strong>框选</strong>：按住 <strong>Ctrl/⌘ + 拖拽</strong> 圈选多个节点，整体发光提示；</li>
+<li><strong>撤销</strong>：<strong>Ctrl+Z</strong> 或右下角「↶ 撤销」。</li>
+</ul>
+<h2>模块 8：三种视图（完整树 / 邻近分支 / 当前路径）</h2>
+<ul>
+<li><strong>完整树</strong>：看全部节点（默认，不压暗）；</li>
+<li><strong>邻近分支</strong>：只看当前节点所在路径 + 附近分支，其余淡化；</li>
+<li><strong>当前路径</strong>：只保留从根到当前节点的这条链。</li>
+<li><strong>细节</strong>：切换视图不重排布局，保留缩放和平移。</li>
+</ul>
+<h2>模块 9：奏折式折叠（收起整棵子树）</h2>
+<ul>
+<li><strong>是什么</strong>：把任意回答节点下的整棵子树折叠成一张"扑克牌堆"贴在父节点上。</li>
+<li><strong>怎么用</strong>：点卡片「收起」叠成牌堆；点「展开」滑回原位。</li>
+<li><strong>细节</strong>：折叠只叠牌、不重排；折叠状态按主题分别记忆。</li>
+</ul>
+<h2>模块 10：节点管理（收起 / 隐藏 / 详情 / 删除）</h2>
+<ul>
+<li>每张卡片一组操作：</li>
+<li><strong>收起 / 展开</strong>：折叠整棵子树（见模块 9）；</li>
+<li><strong>隐藏</strong>：内容收起，只留一句语义摘要；点「显示」还原；</li>
+<li><strong>详情</strong>（右下角）：打开全文阅读栏；</li>
+<li><strong>分支</strong>（仅回答卡）：展开三出口；</li>
+<li><strong>删除</strong>（仅提问卡）：删除该问题及整棵子树，二次确认。</li>
+</ul>
+<h2>模块 11：阅读栏（点「详情」打开）</h2>
+<ul>
+<li>右侧滑出面板，显示节点完整正文 + 位置上下文：</li>
+<li>当前路径（起点 → 追问 → 验收）、父节点、后代数；</li>
+<li>操作：「收起后代」「隐藏内容」「导出路径」「定位节点」；</li>
+<li>点空白处或 <code>Esc</code> 关闭。</li>
+<li><strong>说明</strong>：单击卡片只做选中，<strong>查看全文统一走「详情」</strong>。</li>
+</ul>
+<h2>模块 12：显示控制（全部隐藏 / 全部显示）</h2>
+<ul>
+<li>画布右上角（overview 下方）的一键开关，把整棵树压成"摘要图"。</li>
+<li>「全部隐藏」自动为缺摘要的节点生成语义摘要；「全部显示」一键还原。</li>
+</ul>
+<h2>模块 13：输入框按需出现</h2>
+<ul>
+<li>底部的提问输入框<strong>不常驻</strong>，只在需要时出现：</li>
+<li>空树（0 节点）时始终显示；</li>
+<li>点回答卡的「分支」抽屉、或快捷入口（验收 / 追问 / ＋其他 / 新开问题）时出现；</li>
+<li>提问后回答长出时收起；未发问时点空白收起。</li>
+<li><strong>为什么</strong>：先选准"从哪个回答的哪个出口继续"，再输入问题。</li>
+</ul>
+<h2>模块 14：导出（把树带走）</h2>
+<ul>
+<li>header 右侧导出控件，三种范围 × 三种格式：</li>
+<li><strong>范围</strong>：完整知识树 / 当前路径 / 当前节点及后代；</li>
+<li><strong>格式</strong>：Markdown（含 Mermaid 图）/ TXT / DOCX；</li>
+<li>点「下载」即得文件。</li>
+</ul>
+<h2>模块 15：深夜模式 + 配置</h2>
+<ul>
+<li><strong>深夜 / 日间</strong>：header 右侧一键切换，跟随系统偏好，持久化到浏览器。</li>
+<li><strong>⚙ 配置</strong>：回到配置页，调整模型 / 人设 / 命名 / 布局 / 拆解等。</li>
+</ul>
+<h2>附带：快捷键</h2>
+<table>
+<thead>
+<tr>
+<th>快捷键</th>
+<th>作用</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Enter</td>
+<td>发送输入框内容</td>
+</tr>
+<tr>
+<td>Shift + Enter</td>
+<td>输入框换行</td>
+</tr>
+<tr>
+<td>Ctrl + Z</td>
+<td>撤销上一步画布操作</td>
+</tr>
+<tr>
+<td>Ctrl/⌘ + 拖拽</td>
+<td>框选多个节点</td>
+</tr>
+<tr>
+<td>滚轮（悬停画布）</td>
+<td>缩放画布</td>
+</tr>
+<tr>
+<td>Esc</td>
+<td>关闭阅读栏 / 面板</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h1>第二篇 · 按整体布局讲解</h1>
+<h2>整体结构</h2>
+<p>整个站点现在由四个页面构成：<strong>登录页 → 学习空间 → 配置页 → 管理员面板</strong>。你从登录页进入后，日常绝大多数时间都在<strong>学习空间</strong>；配置与管理按需前往。</p>
+<h2>1. 登录页（/login）</h2>
+<ul>
+<li><strong>进入</strong>：浏览器打开站点即到。</li>
+<li><strong>区块</strong>：Logo + 站点名、用户名输入、密码输入、登录按钮。</li>
+<li><strong>忘记密码</strong>：点「忘记密码」→ 输入绑定邮箱 → 收到重置链接；未配置邮件服务时此入口不可用（管理员需先在管理面板配置 SMTP）。</li>
+<li><strong>注册</strong>：管理员开启「开放注册」后出现注册入口，新访客可自助创建普通用户账号。</li>
+<li><strong>细节</strong>：同一 IP 注册有限流；连续 5 次密码错误会锁定该账号 10 分钟；登录成功后自动回到学习空间。</li>
+</ul>
+<h2>2. 学习空间（/，主工作区）</h2>
+<p>按视线从上到下、从左到右：</p>
+<ul>
+<li><strong>顶部 Header</strong>：</li>
+<li>左：Logo + 站点名 + 当前主题名；</li>
+<li>中：空位；</li>
+<li>右：主题状态、配额剩余（普通用户）、导出、深夜模式切换、⚙ 配置、管理（仅管理员）、用户名、登出。</li>
+<li><strong>左侧学习轨迹</strong>：所有主题的列表，按「今天 / 最近 7 天 / 更早」分组；点任意一条切换当前主题。</li>
+<li><strong>中央知识树画布</strong>：主体工作区，节点按层排布、彩色连线；左上角三种视图、右上角 OVERVIEW 缩略图 + 全部隐藏/显示、右下角撤销/缩放/回全图。</li>
+<li><strong>底部输入区</strong>：按需出现的提问输入框 + 快捷分支入口（验收 / 追问 / ＋其他 / 新开问题）。</li>
+</ul>
+<h2>3. 配置页（/setup）</h2>
+<ul>
+<li><strong>入口</strong>：Header 右上「⚙ 配置」。</li>
+<li><strong>布局</strong>：与管理员面板一致的单列卡片式 UI，从上到下共 8 张卡：
+  1. <strong>注册信息</strong>（仅未注册时出现）：创建管理员账号 —— 用户名 + 密码 + 确认密码；
+  2. <strong>模型服务</strong>（仅管理员）：API Key / 接口地址 / 模型 / 测试连接 / 保存；
+  3. <strong>自定义人设</strong>（普通用户与管理员都有）：全局教学风格，留空用默认；
+  4. <strong>分支节点命名</strong>：三个出口显示名；
+  5. <strong>画布布局</strong>：问答间距 / 衔接间距 / 卡片默认宽高；
+  6. <strong>拆解模块</strong>：每个回答附带模块的开关；
+  7. <strong>绑定邮箱</strong>：用于忘记密码找回（可选）；
+  8. <strong>修改密码</strong>：验证当前密码后设置新密码。</li>
+<li>每张卡保存后独立生效；右上「返回学习空间」随时回到主工作区。</li>
+</ul>
+<h2>4. 管理员面板（/admin，仅管理员可见）</h2>
+<ul>
+<li><strong>入口</strong>：Header 右上「管理」（普通用户看不到）。</li>
+<li><strong>布局</strong>：单列卡片式，从上到下 3 张卡：
+  1. <strong>开放注册</strong>：一键开关 + 当前状态；
+  2. <strong>邮件服务</strong>：SMTP 配置（主机 / 端口 / SSL / 账号 / 授权码 / 发件人）+ 发送测试邮件 + 保存；
+  3. <strong>用户管理</strong>：完整用户表格 + 底部创建用户。</li>
+<li><strong>用户表格列</strong>：用户名（自己标注"（我）"）、角色徽章、状态（在线/离线/已禁用）、邮箱、主题数、节点数、<strong>配额（今日用量）</strong>、最近活跃、最近登录、操作按钮。</li>
+<li><strong>每行操作</strong>：改密 / 邮箱 / <strong>配额</strong> / 设为管理员或降为普通 / 禁用或启用 / 删除。</li>
+<li>列表每 30 秒自动刷新，在线状态保持新鲜。</li>
+</ul>
+<h2>视觉与导航的一致性</h2>
+<p>四个页面的所有控件都遵循同一套视觉语言：</p>
+<ul>
+<li><strong>卡片</strong>：统一圆角描边卡片，分区清晰；</li>
+<li><strong>主题</strong>：每页右上角都有深夜/日间切换，全局一致且记忆偏好；</li>
+<li><strong>配色</strong>：日间暖底 + 夜间深底，强调色（蓝）贯穿按钮、徽章、连线；</li>
+<li><strong>返回</strong>：配置页与管理页都有「返回学习空间」，不打断当前学习。</li>
+</ul>
+<hr />
+<h1>第三篇 · 按设计思路讲解</h1>
+<h2>设计总纲</h2>
+<p>Treening 的核心理念是：<strong>学习不是一条线，而是一棵树；树的每一根枝都可以被追问、被验收、被自定义地延伸。</strong> 所有设计决策都围绕这一个理念展开。</p>
+<h2>一、为什么要"树"而不是"聊天记录"</h2>
+<ul>
+<li><strong>可回顾</strong>：聊天记录是线性的，翻找历史很痛苦；树形结构让"上次学到哪、沿哪条枝展开"一目了然。</li>
+<li><strong>可裁剪</strong>：任何一条分支都可以收起、隐藏、删除，而不影响其余部分。</li>
+<li><strong>可追踪</strong>：三种视图（完整树 / 邻近分支 / 当前路径）从"全局"到"局部"到"单链"自由切换，理解不迷路。</li>
+</ul>
+<h2>二、画布优先：为什么画布是主角</h2>
+<ul>
+<li><strong>空间感</strong>：先看到全局结构再深入细节，比逐条滚动更符合人脑的地图式记忆。</li>
+<li><strong>非破坏</strong>：拖动、缩放、框选都只改变"看的方式"和"摆放位置"，不改变内容；撤销随时可回退。</li>
+<li><strong>焦点控制</strong>：单击只选中、双击/详情才展开全文，避免画布被文字淹没。</li>
+</ul>
+<h2>三、三出口分支：强制"继续"的规则</h2>
+<p>每个回答固定长出 <strong>验收 / 追问 / ＋其他</strong> 三个出口，并限制每卡最多 3 个子分支：</p>
+<ul>
+<li><strong>验收</strong>是"输出"，迫你写下理解让系统检查 —— 费曼学习法的具体化；</li>
+<li><strong>追问</strong>是"深入"，顺着当前枝钻细节；</li>
+<li><strong>＋其他</strong>是"自由"，不预设路径地开新支。</li>
+<li>限制分支数量的设计意图：<strong>先消化再扩展</strong>，防止"为问而问"地无限分叉。</li>
+</ul>
+<h2>四、配置页全面对齐管理模块的 UI</h2>
+<ul>
+<li>同一套卡片、同一套描边、同一个顶部结构，管理员和普通用户看到的界面语言完全一致，降低学习成本；</li>
+<li>全局设置（模型服务）与个人设置（人设 / 命名 / 布局 / 拆解）分卡呈现、权限分离 —— 管理员改模型，用户改习惯，互不干扰；</li>
+<li>每次保存即时生效、独立反馈，不依赖"整体提交"。</li>
+</ul>
+<h2>五、安全策略（v0.2.0 新增）</h2>
+<table>
+<thead>
+<tr>
+<th>层</th>
+<th>措施</th>
+<th>作用</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>账号</td>
+<td>PBKDF2 盐化密码存储</td>
+<td>数据库泄露也不泄露明文密码</td>
+</tr>
+<tr>
+<td>账号</td>
+<td>连续 5 次失败锁定 + 每 IP 注册限流</td>
+<td>防暴力破解、防批量注册</td>
+</tr>
+<tr>
+<td>会话</td>
+<td>随机持久化密钥 + HttpOnly + SameSite=Lax Cookie</td>
+<td>登录态不可伪造、防 XSS 窃取</td>
+</tr>
+<tr>
+<td>配额</td>
+<td>普通用户每日默认 20 次提问，管理员不限，可按人覆盖</td>
+<td>控制 API 成本、防止滥用</td>
+</tr>
+<tr>
+<td>传输</td>
+<td>HSTS + 强制 HTTPS（nginx 层）</td>
+<td>防中间人窃听</td>
+</tr>
+<tr>
+<td>应用</td>
+<td>安全响应头：nosniff / X-Frame-Options / Referrer-Policy / Permissions-Policy / CSP</td>
+<td>防 MIME 嗅探、点击劫持、信息泄漏</td>
+</tr>
+<tr>
+<td>密钥</td>
+<td>API Key 只存服务器本地，页面只回显掩码</td>
+<td>不在浏览器暴露模型密钥</td>
+</tr>
+</tbody>
+</table>
+<h2>六、配额的设计</h2>
+<ul>
+<li><strong>默认值</strong>：普通用户每人每日 20 次提问，够日常学习也控制成本；</li>
+<li><strong>管理员</strong>：恒不限额，避免被日常调试误伤；</li>
+<li><strong>按人覆盖</strong>：管理员面板里每位用户可单独设为"留空=默认 / 0=不限 / N=每日 N 次"；</li>
+<li><strong>用户体验</strong>：顶部实时显示剩余次数，用完温和提示，不打断已生成的内容。</li>
+</ul>
+<h2>七、深夜模式的取舍</h2>
+<ul>
+<li>跟随系统偏好 + 手动切换，持久化到浏览器；</li>
+<li>深色下选中态用白色高亮与日间蓝色区分，保证低光环境可辨识；</li>
+<li>全局统一，四个页面一致。</li>
+</ul>
+<hr />
+<h1>附 · 运维速查</h1>
+<h2>环境变量</h2>
+<table>
+<thead>
+<tr>
+<th>变量</th>
+<th>默认值</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>TREENING_HOST</td>
+<td>127.0.0.1</td>
+<td>监听地址</td>
+</tr>
+<tr>
+<td>TREENING_PORT</td>
+<td>5050</td>
+<td>监听端口（生产经 nginx 反代，容器内 5000）</td>
+</tr>
+<tr>
+<td>TREENING_DATABASE_URL</td>
+<td>sqlite:///data/tree.db</td>
+<td>数据库（WAL 模式）</td>
+</tr>
+<tr>
+<td>TREENING_API_KEY</td>
+<td>空</td>
+<td>DeepSeek/OpenAI 兼容 Key（也可在配置页填）</td>
+</tr>
+<tr>
+<td>TREENING_API_URL</td>
+<td>https://api.deepseek.com/chat/completions</td>
+<td>模型接口</td>
+</tr>
+<tr>
+<td>TREENING_MODEL</td>
+<td>deepseek-chat</td>
+<td>模型名</td>
+</tr>
+<tr>
+<td>TREENING_PERSONA</td>
+<td>空</td>
+<td>全局默认人设（每位用户可单独覆盖）</td>
+</tr>
+<tr>
+<td>TREENING_QUOTA_ENABLED</td>
+<td>true</td>
+<td>配额开关（默认开）</td>
+</tr>
+<tr>
+<td>TREENING_MAX_QUESTIONS</td>
+<td>20</td>
+<td>普通用户每日默认次数</td>
+</tr>
+<tr>
+<td>TREENING_BRANCH_LABEL_MAX_CHARS</td>
+<td>6</td>
+<td>分支命名单字上限</td>
+</tr>
+</tbody>
+</table>
+<h2>数据文件（data/ 目录）</h2>
+<table>
+<thead>
+<tr>
+<th>文件</th>
+<th>内容</th>
+<th>备份</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>tree.db</td>
+<td>用户、主题、节点、配额等全部业务数据</td>
+<td>随数据库备份</td>
+</tr>
+<tr>
+<td>settings.json</td>
+<td>API Key、SMTP 密码、开放注册开关等<strong>敏感配置</strong></td>
+<td><strong>排除在备份外</strong>，服务器本地独有</td>
+</tr>
+<tr>
+<td>.secret</td>
+<td>会话签名密钥（重启后登录态不失效）</td>
+<td>随服务器保留</td>
+</tr>
+</tbody>
+</table>
+<h2>常见运维操作</h2>
+<ul>
+<li><strong>重启</strong>：<code>docker compose down &amp;&amp; docker compose up -d</code>（会话不失效，secret 持久化）；</li>
+<li><strong>看日志</strong>：<code>docker compose logs -f app</code>；</li>
+<li><strong>备份数据库</strong>：先 <code>docker compose exec app sqlite3 data/tree.db ".backup /tmp/b.db"</code> 再拷出（WAL 下切勿直接复制文件）；</li>
+<li><strong>线上改配额</strong>：不用改环境变量 —— 管理面板 → 用户管理 → 该行「配额」即可即时生效；</li>
+<li><strong>安全加固已内建</strong>：安全响应头、登录墙、PBKDF2、锁定、限流、配额、HSTS（nginx）均已生效，无需额外配置。</li>
+</ul>
+<hr />
+<p><em>版本 v0.2.0 ｜ 更新于 2026-08-07 ｜ https://treening.cc</em></p></section>
+</body>
+</html>

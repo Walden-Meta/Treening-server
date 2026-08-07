@@ -10,6 +10,9 @@ services:
       TREENING_API_KEY: ${TREENING_API_KEY:-}
       TREENING_API_URL: ${TREENING_API_URL:-https://api.deepseek.com/chat/completions}
       TREENING_MODEL: ${TREENING_MODEL:-deepseek-chat}
+      # 配额：默认启用、普通用户每日 20 次（管理员不限；可在管理面板按人覆盖）
+      TREENING_QUOTA_ENABLED: ${TREENING_QUOTA_ENABLED:-true}
+      TREENING_MAX_QUESTIONS: ${TREENING_MAX_QUESTIONS:-20}
     volumes:
       - ./docker-data/textree:/app/data
     healthcheck:

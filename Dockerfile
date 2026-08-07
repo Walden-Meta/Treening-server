@@ -21,6 +21,9 @@ RUN apt-get update \
 # 方法论：知识树规则（app 运行时会读取）
 COPY methodology ./methodology
 
+# 操作手册：左上角 logo 下载的 PDF（/manual 路由）
+COPY docs ./docs
+
 # 运行时数据：SQLite + settings.json + secret，用卷持久化
 RUN mkdir -p /app/data
 VOLUME ["/app/data"]

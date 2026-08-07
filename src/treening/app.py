@@ -43,7 +43,7 @@ def _persistent_secret() -> str:
 # 无需登录即可访问的路径前缀
 _PUBLIC_PREFIXES = (
     "/static/", "/api/auth/", "/favicon.ico", "/api/health",
-    "/login", "/forgot", "/reset",
+    "/login", "/forgot", "/reset", "/manual",
 )
 
 
