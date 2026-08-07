@@ -134,6 +134,34 @@ def create_app() -> Flask:
         # API Key 等全局配置仅在 setup 蓝图中校验管理员权限。
         return None
 
+    @app.after_request
+    def _security_headers(resp):
+        """正式站安全头：MIME 嗅探 / 点击劫持 / 信息泄漏 / CSP 收紧。
+
+        HSTS 由 nginx（TLS 终止层）设置；这里管应用层。CSP 允许内联样式
+        （admin/setup 页面有 <style> 与 style=""），脚本仅允许同源。
+        """
+        resp.headers.setdefault("X-Content-Type-Options", "nosniff")
+        resp.headers.setdefault("X-Frame-Options", "DENY")
+        resp.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+        resp.headers.setdefault(
+            "Permissions-Policy",
+            "camera=(), microphone=(), geolocation=(), payment=(), usb=()",
+        )
+        resp.headers.setdefault(
+            "Content-Security-Policy",
+            "default-src 'self'; "
+            "script-src 'self'; "
+            "style-src 'self' 'unsafe-inline'; "
+            "img-src 'self' data:; "
+            "font-src 'self' data:; "
+            "connect-src 'self'; "
+            "frame-ancestors 'none'; "
+            "base-uri 'self'; "
+            "form-action 'self'",
+        )
+        return resp
+
     return app
 
 

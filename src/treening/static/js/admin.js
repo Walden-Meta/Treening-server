@@ -61,11 +61,20 @@
         : `<button class="mini-btn" data-act="promote" data-id="${u.id}">设为管理员</button>`;
       const btnReset = `<button class="mini-btn" data-act="resetpw" data-id="${u.id}">改密</button>`;
       const btnEmail = `<button class="mini-btn" data-act="setemail" data-id="${u.id}" data-email="${esc(u.email || "")}">邮箱</button>`;
+      const btnQuota = `<button class="mini-btn" data-act="quota" data-id="${u.id}" data-quota="${u.quota_limit === null || u.quota_limit === undefined ? "" : u.quota_limit}" data-role="${u.role}">配额</button>`;
       const btnDelete = self
         ? ""
         : `<button class="mini-btn danger" data-act="delete" data-id="${u.id}">删除</button>`;
       const seenCell = `<div>${fmtTime(u.last_seen_at)}</div><div class="ip-sub">${esc(u.last_seen_ip || "—")}</div>`;
       const loginCell = `<div>${fmtTime(u.last_login_at)}</div><div class="ip-sub">${esc(u.last_login_ip || "—")}</div>`;
+      let quotaCell;
+      if (u.quota_max === null) {
+        quotaCell = '<span class="quota-unlimited">∞ 不限</span>';
+      } else if (u.quota_limit === null || u.quota_limit === undefined) {
+        quotaCell = `<span class="quota-default">${u.quota_used} / ${u.quota_max}（默认）</span>`;
+      } else {
+        quotaCell = `<span>${u.quota_used} / ${u.quota_max}</span>`;
+      }
       return `<tr data-id="${u.id}">
         <td>${esc(u.username)}${self ? " <span class='off-badge'>(我)</span>" : ""}</td>
         <td>${roleBadge}</td>
@@ -73,9 +82,10 @@
         <td class="email-cell" title="${esc(u.email || "")}">${u.email ? esc(u.email) : "—"}</td>
         <td>${u.session_count}</td>
         <td>${u.node_count}</td>
+        <td class="quota-cell">${quotaCell}</td>
         <td>${seenCell}</td>
         <td>${loginCell}</td>
-        <td style="white-space:nowrap">${btnReset} ${btnEmail} ${btnRole} ${btnToggle} ${btnDelete}</td>
+        <td style="white-space:nowrap">${btnReset} ${btnEmail} ${btnQuota} ${btnRole} ${btnToggle} ${btnDelete}</td>
       </tr>`;
     }).join("");
   }
@@ -110,6 +120,26 @@
             alert("邮箱格式不正确"); return;
           }
           await api(`/users/${id}`, "PATCH", { email: value });
+        } else if (act === "quota") {
+          const isAdmin = btn.dataset.role === "admin";
+          if (isAdmin) { alert("管理员不限额，无需设置配额。"); return; }
+          const cur = btn.dataset.quota || "";
+          const hint = cur === "" ? "全局默认" : (cur === "0" ? "不限额" : `每日 ${cur} 次`);
+          const input = prompt(
+            `为 ${username} 设置每日提问配额：\n留空 = 全局默认，0 = 不限额，数字 = 每日 N 次\n当前：${hint}`,
+            cur
+          );
+          if (input === null) return;
+          const val = input.trim();
+          if (val === "") {
+            await api(`/users/${id}`, "PATCH", { quota_limit: null });
+          } else {
+            const n = Number(val);
+            if (!Number.isInteger(n) || n < 0 || n > 100000) {
+              alert("配额需为 0、正整数，或留空（默认）"); return;
+            }
+            await api(`/users/${id}`, "PATCH", { quota_limit: n });
+          }
         } else if (act === "delete") {
           if (!confirm(`确定删除用户 ${username}？其全部学习数据将被清空，不可恢复。`)) return;
           await api(`/users/${id}`, "DELETE");

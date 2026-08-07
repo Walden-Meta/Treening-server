@@ -48,6 +48,18 @@ def _user_stats(user_id: str) -> dict:
     return {"session_count": len(sessions), "node_count": node_count}
 
 
+def _effective_quota_max(user: dict) -> int | None:
+    """用户每日提问上限（None=不限额）。管理员恒不限额。"""
+    if user.get("role") == "admin":
+        return None
+    limit = user.get("quota_limit")
+    if isinstance(limit, int) and limit > 0:
+        return int(limit)
+    if isinstance(limit, int) and limit == 0:
+        return None
+    return int(config.MAX_QUESTIONS)
+
+
 def _public_users() -> list[dict]:
     store = _store()
     users = []
@@ -65,6 +77,9 @@ def _public_users() -> list[dict]:
             "last_seen_at": u.get("last_seen_at") or "",
             "last_seen_ip": u.get("last_seen_ip") or "",
             "online": _is_online(u),
+            "quota_limit": u.get("quota_limit"),  # None=默认; 0=不限; N=每日N次
+            "quota_max": _effective_quota_max(u),
+            "quota_used": store.quota_used_today(u["id"]),
             **stats,
         })
     return users
@@ -152,6 +167,20 @@ def update_user(user_id: str):
             if target["role"] == "admin" and len(admins) <= 1:
                 return jsonify({"ok": False, "error": "不能禁用最后一个管理员"}), 400
         store.set_user_active(user_id, is_active)
+
+    # 改每日配额（quota_limit：null/省略=用全局默认，0=不限额，N=每日 N 次）
+    if "quota_limit" in data:
+        ql = data.get("quota_limit")
+        if ql is None or ql == "":
+            store.set_user_quota(user_id, None)
+        else:
+            try:
+                ql_int = int(ql)
+            except (TypeError, ValueError):
+                return jsonify({"ok": False, "error": "配额需为 0（不限）、数字或留空（默认）"}), 400
+            if ql_int < 0 or ql_int > 100000:
+                return jsonify({"ok": False, "error": "配额需在 0-100000 之间"}), 400
+            store.set_user_quota(user_id, ql_int)
 
     return jsonify({"ok": True, "users": _public_users()})
 

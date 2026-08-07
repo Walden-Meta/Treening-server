@@ -119,7 +119,8 @@ class TreeStore:
                     last_login_at TEXT,
                     last_login_ip TEXT,
                     last_seen_at TEXT,
-                    last_seen_ip TEXT
+                    last_seen_ip TEXT,
+                    quota_limit INTEGER
                 );
 
                 CREATE TABLE IF NOT EXISTS password_resets (
@@ -157,6 +158,8 @@ class TreeStore:
                 row["name"]
                 for row in conn.execute("PRAGMA table_info(users)").fetchall()
             }
+            if "quota_limit" not in user_columns:
+                conn.execute("ALTER TABLE users ADD COLUMN quota_limit INTEGER")
             for col in ("last_login_ip", "last_seen_at", "last_seen_ip", "email"):
                 if col not in user_columns:
                     conn.execute(f"ALTER TABLE users ADD COLUMN {col} TEXT")
@@ -811,9 +814,14 @@ class TreeStore:
         self,
         user_id: str,
         ip_address: str,
-        max_questions: int,
+        max_questions: int | None,
     ) -> dict[str, Any]:
-        """Atomically reserve one daily slot for both browser and IP scopes."""
+        """Atomically reserve one daily slot for both browser and IP scopes.
+
+        ``max_questions=None`` 表示不限额（管理员），直接放行、不计数。
+        """
+        if max_questions is None:
+            return {"allowed": True, "remaining": None, "unlimited": True}
         window = datetime.now(timezone.utc).date().isoformat()
         scopes = [("user", user_id), ("ip", ip_address)]
         with self._connection() as conn:
@@ -858,7 +866,7 @@ class TreeStore:
                     (scope, key, window),
                 )
 
-    def get_quota(self, user_id: str, ip_address: str, max_questions: int) -> dict[str, Any]:
+    def get_quota(self, user_id: str, ip_address: str, max_questions: int | None) -> dict[str, Any]:
         window = datetime.now(timezone.utc).date().isoformat()
         with self._connection() as conn:
             values: list[int] = []
@@ -871,7 +879,28 @@ class TreeStore:
                     (scope, key, window),
                 ).fetchone()
                 values.append(int(row["used"] if row else 0))
-        return {"remaining": max(0, max_questions - max(values)), "max": max_questions}
+        used = max(values)
+        if max_questions is None:
+            return {"used": used, "remaining": None, "max": None, "unlimited": True}
+        return {
+            "used": used,
+            "remaining": max(0, max_questions - used),
+            "max": max_questions,
+            "unlimited": False,
+        }
+
+    def quota_used_today(self, user_id: str) -> int:
+        """某用户今日已用提问次数（管理面板展示用）。"""
+        window = datetime.now(timezone.utc).date().isoformat()
+        with self._connection() as conn:
+            row = conn.execute(
+                """
+                SELECT used FROM quiz_usage
+                WHERE scope = 'user' AND scope_key = ? AND window_start = ?
+                """,
+                (user_id, window),
+            ).fetchone()
+        return int(row["used"] if row else 0)
 
     @staticmethod
     def _decode_node(row: sqlite3.Row) -> dict[str, Any]:
@@ -985,6 +1014,13 @@ class TreeStore:
         with self._connection() as conn:
             conn.execute(
                 "UPDATE users SET role = ? WHERE id = ?", (role, user_id)
+            )
+
+    def set_user_quota(self, user_id: str, quota_limit: int | None) -> None:
+        """设置用户每日提问配额。None=用全局默认；0=不限额；N=每日 N 次。"""
+        with self._connection() as conn:
+            conn.execute(
+                "UPDATE users SET quota_limit = ? WHERE id = ?", (quota_limit, user_id)
             )
 
     def touch_user_login(self, user_id: str, ip: str = "") -> None:

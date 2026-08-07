@@ -100,9 +100,9 @@ class Config:
         self.MAX_CONTEXT_MESSAGES: int = int(_env("MAX_CONTEXT_MESSAGES", "12"))
         self.MAX_INFLIGHT: int = int(_env("MAX_INFLIGHT", "2"))
 
-        # 配额（BYO-Key 默认不限额；托管代缴费模式再启用）
-        self.QUOTA_ENABLED: bool = _env("QUOTA_ENABLED", "false").lower() in {"1", "true", "yes"}
-        self.MAX_QUESTIONS: int = int(_env("MAX_QUESTIONS", "8"))
+        # 配额（默认启用；普通用户每人每日默认 20 次，管理员不限，可在管理面板按人覆盖）
+        self.QUOTA_ENABLED: bool = _env("QUOTA_ENABLED", "true").lower() in {"1", "true", "yes"}
+        self.MAX_QUESTIONS: int = int(_env("MAX_QUESTIONS", "20"))
 
         # 分支（运行时覆盖值；默认来自 methodology/rules.yaml）
         self.MAX_BRANCHES: int = int(_env("MAX_BRANCHES", "3"))

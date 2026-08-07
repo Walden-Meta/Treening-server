@@ -84,8 +84,21 @@ def _max_branches() -> int:
     return _methodology().max_branches()
 
 
+def _quota_max_for(user_id: str) -> int | None:
+    """该用户的每日提问上限。None=不限额（管理员 / 单人无限配额）。"""
+    user = _store().get_user_by_id(user_id)
+    if user and user.get("role") == "admin":
+        return None
+    limit = (user or {}).get("quota_limit")
+    if isinstance(limit, int) and limit > 0:
+        return int(limit)
+    if isinstance(limit, int) and limit == 0:
+        return None  # 0 = 不限额
+    return int(config.MAX_QUESTIONS)
+
+
 def _quota(user_id: str, ip_address: str) -> dict[str, Any]:
-    max_questions = int(config.MAX_QUESTIONS)
+    max_questions = _quota_max_for(user_id)
     if not config.QUOTA_ENABLED:
         return {"used": 0, "remaining": None, "max": max_questions, "unlimited": True}
     return _store().get_quota(user_id, ip_address, max_questions)
@@ -459,7 +472,7 @@ def ask():
         reservation = store.reserve_quota(
             user_id,
             ip_address,
-            int(config.MAX_QUESTIONS),
+            _quota_max_for(user_id),
         )
     if not reservation["allowed"]:
         return jsonify({
