@@ -82,6 +82,11 @@ input:focus, textarea:focus { border-color: rgba(37, 99, 235, .55); background: 
 .login-title { position: relative; display: inline-block; }
 .login-title .setup-theme-toggle { position: absolute; top: auto; right: 0; bottom: calc(100% + 8px); }
 
+/* 登录页：价值主张 tagline + 底部手册入口 */
+.login-tagline { margin: 12px 0 0; color: var(--quiz-muted); font-size: 14px; line-height: 1.6; }
+.access-panel > p.access-foot { margin: 26px 0 0; text-align: center; }
+.access-panel > p.access-foot .text-button { font-size: 12px; }
+
 /* 太阳/月亮滑动开关：太阳/月亮图标浮在圆球上，圆球随主题左右滑动并切换图案 */
 .theme-toggle-switch {
   min-width: 0;
