@@ -116,6 +116,8 @@ def create_user():
     )
     if not user:
         return jsonify({"ok": False, "error": "用户名已存在"}), 409
+    # 新账号默认第一个样例：「你是谁」主题
+    _store().seed_welcome_session(user["id"])
     return jsonify({"ok": True, "users": _public_users()}), 201
 
 

@@ -73,7 +73,7 @@ pre code { background: transparent; padding: 0; color: inherit; }
 <p><strong>一句话</strong>：把"一个真正困扰你的问题"放进来，让它长成一棵有路径的知识树。</p>
 </blockquote>
 <hr />
-<p class="cover-foot">版本 v0.2.0 ｜ 更新于 2026-08-07 ｜ https://treening.cc</p></section>
+<p class="cover-foot">版本 v0.3.0 ｜ 更新于 2026-08-10 ｜ https://treening.cc</p></section>
 <section class="toc"><h1>目录 · 三篇导读</h1>
 <blockquote>
 <p>这一份手册涵盖 Treening 的全部使用方式，由<strong>三篇独立成篇</strong>组成。
@@ -115,7 +115,7 @@ pre code { background: transparent; padding: 0; color: inherit; }
 <ul>
 <li><strong>第一篇 · 按模块功能讲解</strong>：账号体系、首次配置、个性化配置、管理员面板、学习会话、三出口分支、知识树画布、三种视图、奏折式折叠、节点管理、阅读栏、显示控制、输入框按需出现、导出、深夜模式</li>
 <li><strong>第二篇 · 按整体布局讲解</strong>：之字形走遍页面：登录 → 学习空间 → 配置 → 管理</li>
-<li><strong>第三篇 · 按设计思路讲解</strong>：画布优先、控件就近分布、按需出现、高对比交互、渐进式信息隐藏、安全策略、工程化态度</li>
+<li><strong>第三篇 · 按设计思路讲解</strong>：画布优先、控件就近分布、按需出现、高对比交互、渐进式信息隐藏、安全策略、工程化态度、底座人设（春宁）与开箱样例树</li>
 <li><strong>附 · 运维速查</strong>：生产环境命令、配置、配额与部署</li>
 </ul>
 <blockquote>
@@ -131,6 +131,7 @@ pre code { background: transparent; padding: 0; color: inherit; }
 <li><strong>首次启动</strong>：打开站点 → 进入"创建管理员账号"页 → 填用户名 + 密码（8-64 位）→ 创建并进入；</li>
 <li><strong>普通用户</strong>：由管理员在管理面板手动创建（或开放注册开启后自助注册），然后用账号密码登录；</li>
 <li><strong>忘记密码</strong>：登录页点「忘记密码」→ 输入绑定邮箱 → 收到重置链接（需管理员在管理面板配置过邮件服务）。</li>
+<li><strong>新账号开箱</strong>：注册或由管理员创建后，学习空间自动预置第一棵<strong>「你是谁」样例树</strong>（标题「你好，我是春宁」）——完整演示三出口与树的生长，可先体验、可随意折腾、也可删掉换自己的树。</li>
 <li><strong>说明</strong>：密码以 PBKDF2 盐化存储；连续 5 次登录失败会临时锁定；同一 IP 注册有频率限制。退出登录点右上角「登出」。</li>
 </ul>
 <h2>模块 2：首次配置（模型服务）</h2>
@@ -158,7 +159,7 @@ pre code { background: transparent; padding: 0; color: inherit; }
 <tbody>
 <tr>
 <td><strong>自定义人设</strong></td>
-<td>全局教学风格，作用于所有对话；留空用默认风格</td>
+<td>作用于所有对话，不按主题区分。<strong>春宁是底座人设</strong>：留空 = 默认「春宁」；填入文字 = 用它覆盖默认；清空保存 = 恢复默认。此栏只作覆盖/重置，不参与初始设置</td>
 </tr>
 <tr>
 <td><strong>分支节点命名</strong></td>
@@ -204,7 +205,8 @@ pre code { background: transparent; padding: 0; color: inherit; }
 <ul>
 <li><strong>是什么</strong>：每次学习是一个主题，一棵知识树。可建多棵，历史全部保留，按时间自动分组。</li>
 <li><strong>怎么用</strong>：</li>
-<li><strong>开始</strong>：在输入框提出第一个问题，第一次提问才正式创建主题；</li>
+<li><strong>开始</strong>：在输入框提出第一个问题，第一次提问正式创建主题（新账号除外——已预置样例树）；</li>
+<li><strong>新账号预置</strong>：新账号自动带一棵<strong>「你是谁」样例树</strong>（标题「你好，我是春宁」），把三出口与树的生长完整演示一遍——先玩熟它，再删掉种自己的树；</li>
 <li><strong>新主题</strong>：右上角「新主题」；</li>
 <li><strong>切换</strong>：左栏「学习轨迹」点任意一条；</li>
 <li><strong>历史分组</strong>：自动分「今天 / 最近 7 天 / 更早」；</li>
@@ -220,6 +222,7 @@ pre code { background: transparent; padding: 0; color: inherit; }
 <li><strong>规则</strong>：</li>
 <li>每个回答最多 3 个子分支，同一槽位不重复；</li>
 <li>只能从<strong>回答节点</strong>继续，不能从提问节点挂分支。</li>
+<li><strong>上手</strong>：新账号的第一棵样例树就把三个出口各自长了一枝（验收 / 追问 / 其他各一条），照着点一遍即懂。</li>
 </ul>
 <h2>模块 7：知识树画布（核心工作区）</h2>
 <ul>
@@ -261,7 +264,7 @@ pre code { background: transparent; padding: 0; color: inherit; }
 <li><strong>交互</strong>：</li>
 <li><strong>缩放</strong>：滚轮悬停画布即缩放；</li>
 <li><strong>平移</strong>：空白处直接拖动；</li>
-<li><strong>拖动节点</strong>：按住卡片拖，位置自动保存；</li>
+<li><strong>拖动节点</strong>：按住卡片拖，位置自动保存；<strong>画布四向无墙</strong>——左、上方向同样可无限拖出（负坐标区域照常渲染），不再有边界钳制；</li>
 <li><strong>调整大小</strong>：拖卡片右下角小尖，<strong>左上角固定、只拉右下角</strong>；</li>
 <li><strong>框选</strong>：按住 <strong>Ctrl/⌘ + 拖拽</strong> 圈选多个节点，整体发光提示；</li>
 <li><strong>撤销</strong>：<strong>Ctrl+Z</strong> 或右下角「↶ 撤销」。</li>
@@ -319,6 +322,7 @@ pre code { background: transparent; padding: 0; color: inherit; }
 <h2>模块 15：深夜模式 + 配置</h2>
 <ul>
 <li><strong>深夜 / 日间</strong>：header 右侧一键切换，跟随系统偏好，持久化到浏览器。</li>
+<li><strong>登录页也有</strong>：登录 / 注册页标题旁同样有切换开关。</li>
 <li><strong>⚙ 配置</strong>：回到配置页，调整模型 / 人设 / 命名 / 布局 / 拆解等。</li>
 </ul>
 <h2>附带：快捷键</h2>
@@ -363,9 +367,10 @@ pre code { background: transparent; padding: 0; color: inherit; }
 <h2>1. 登录页（/login）</h2>
 <ul>
 <li><strong>进入</strong>：浏览器打开站点即到。</li>
-<li><strong>区块</strong>：Logo + 站点名、用户名输入、密码输入、登录按钮。</li>
+<li><strong>区块</strong>：标题「登录学习空间」+ 标语「把一个问题，长成一棵知识树」、主题切换开关、用户名输入、密码输入、登录按钮；底部是「查看操作手册」入口。</li>
+<li><strong>操作手册</strong>：任意访客可点「查看操作手册」下载 PDF（/manual，公开端点，无需登录）。</li>
 <li><strong>忘记密码</strong>：点「忘记密码」→ 输入绑定邮箱 → 收到重置链接；未配置邮件服务时此入口不可用（管理员需先在管理面板配置 SMTP）。</li>
-<li><strong>注册</strong>：管理员开启「开放注册」后出现注册入口，新访客可自助创建普通用户账号。</li>
+<li><strong>注册</strong>：管理员开启「开放注册」后出现注册入口，新访客可自助创建普通用户账号；注册页注明"人设与知识树各自独立"，每个新账号开箱自带一棵「你是谁」样例树。</li>
 <li><strong>细节</strong>：同一 IP 注册有限流；连续 5 次密码错误会锁定该账号 10 分钟；登录成功后自动回到学习空间。</li>
 </ul>
 <h2>2. 学习空间（/，主工作区）</h2>
@@ -375,7 +380,7 @@ pre code { background: transparent; padding: 0; color: inherit; }
 <li>左：Logo + 站点名 + 当前主题名；</li>
 <li>中：空位；</li>
 <li>右：主题状态、配额剩余（普通用户）、导出、深夜模式切换、⚙ 配置、管理（仅管理员）、用户名、登出。</li>
-<li><strong>左侧学习轨迹</strong>：所有主题的列表，按「今天 / 最近 7 天 / 更早」分组；点任意一条切换当前主题。</li>
+<li><strong>左侧学习轨迹</strong>：所有主题的列表，按「今天 / 最近 7 天 / 更早」分组；点任意一条切换当前主题。新账号首次进入就有一棵预置的「你是谁」样例树躺在这里，先玩熟它。</li>
 <li><strong>中央知识树画布</strong>：主体工作区，节点按层排布、彩色连线；左上角三种视图、右上角 OVERVIEW 缩略图 + 全部隐藏/显示、右下角撤销/缩放/回全图。</li>
 <li><strong>底部输入区</strong>：按需出现的提问输入框 + 快捷分支入口（验收 / 追问 / ＋其他 / 新开问题）。</li>
 </ul>
@@ -385,7 +390,7 @@ pre code { background: transparent; padding: 0; color: inherit; }
 <li><strong>布局</strong>：与管理员面板一致的单列卡片式 UI，从上到下共 8 张卡：
   1. <strong>注册信息</strong>（仅未注册时出现）：创建管理员账号 —— 用户名 + 密码 + 确认密码；
   2. <strong>模型服务</strong>（仅管理员）：API Key / 接口地址 / 模型 / 测试连接 / 保存；
-  3. <strong>自定义人设</strong>（普通用户与管理员都有）：全局教学风格，留空用默认；
+  3. <strong>自定义人设</strong>（普通用户与管理员都有）：作用于所有对话，不按主题区分。<strong>春宁是底座人设</strong>——留空即用默认「春宁」；填入文字用它覆盖默认；清空保存恢复默认。此栏只作覆盖/重置，不参与初始设置；
   4. <strong>分支节点命名</strong>：三个出口显示名；
   5. <strong>画布布局</strong>：问答间距 / 衔接间距 / 卡片默认宽高；
   6. <strong>拆解模块</strong>：每个回答附带模块的开关；
@@ -502,6 +507,13 @@ pre code { background: transparent; padding: 0; color: inherit; }
 <li>深色下选中态用白色高亮与日间蓝色区分，保证低光环境可辨识；</li>
 <li>全局统一，四个页面一致。</li>
 </ul>
+<h2>八、底座人设：春宁 + 开箱样例树</h2>
+<ul>
+<li><strong>春宁是底座，不是"通用风格"</strong>：默认人设是一份随包内置的完整角色「春宁」——有名字、有来历、有说话习惯。任何账号人设留空，得到的就是春宁，而不是一句泛泛的"你是个助教"；</li>
+<li><strong>兜底链永不落空</strong>：用户自己的配置 → 全局人设文件 data/persona.md → 环境变量 TREENING_PERSONA → 内置春宁（default_persona.md）。任一层缺失或为空，最终都会回落到春宁；</li>
+<li><strong>人设文本框只做覆盖/重置</strong>：不承担初次设置——填入即覆盖、清空即恢复，保证底座不被误改；</li>
+<li><strong>开箱样例树</strong>：每个新账号自动种一棵「你是谁」样例树（标题「你好，我是春宁」），把根问题、回答、三出口、树的生长一次演示完。新用户第一眼看到的是"一棵已经长出来的树"，而不是一张空画布——理解成本大幅下降。</li>
+</ul>
 <hr />
 <h1>附 · 运维速查</h1>
 <h2>环境变量</h2>
@@ -547,7 +559,7 @@ pre code { background: transparent; padding: 0; color: inherit; }
 <tr>
 <td>TREENING_PERSONA</td>
 <td>空</td>
-<td>全局默认人设（每位用户可单独覆盖）</td>
+<td>全局默认人设；兜底链：用户配置 → data/persona.md → 本变量 → 内置春宁（每位用户可在配置页单独覆盖/重置）</td>
 </tr>
 <tr>
 <td>TREENING_QUOTA_ENABLED</td>
@@ -591,6 +603,11 @@ pre code { background: transparent; padding: 0; color: inherit; }
 <td>会话签名密钥（重启后登录态不失效）</td>
 <td>随服务器保留</td>
 </tr>
+<tr>
+<td>persona.md</td>
+<td>全局人设的可编辑副本（当前即「春宁」）</td>
+<td>可随备份；缺失时回退内置春宁，不会无人设</td>
+</tr>
 </tbody>
 </table>
 <h2>常见运维操作</h2>
@@ -602,6 +619,6 @@ pre code { background: transparent; padding: 0; color: inherit; }
 <li><strong>安全加固已内建</strong>：安全响应头、登录墙、PBKDF2、锁定、限流、配额、HSTS（nginx）均已生效，无需额外配置。</li>
 </ul>
 <hr />
-<p><em>版本 v0.2.0 ｜ 更新于 2026-08-07 ｜ https://treening.cc</em></p></section>
+<p><em>版本 v0.3.0 ｜ 更新于 2026-08-10 ｜ https://treening.cc</em></p></section>
 </body>
 </html>

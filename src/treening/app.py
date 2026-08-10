@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import secrets
 import time
+import uuid
 from pathlib import Path
 
 from flask import Flask, jsonify, redirect, request, session, url_for
@@ -15,6 +17,27 @@ from .services.store import TreeStore
 # 在线状态活跃写入节流：同一用户 60 秒内至多写一次库
 _ACTIVITY_THROTTLE_SECONDS = 60
 _last_activity_write: dict[str, float] = {}
+
+logger = logging.getLogger(__name__)
+
+# 默认结构化请求日志格式：时间 / 级别 / 请求 / 状态 / 耗时 / request_id
+_REQUEST_LOG_FORMAT = "%(asctime)s %(levelname)s [%(name)s] %(message)s"
+
+
+def _configure_logging(app: Flask) -> None:
+    """配置应用日志：输出到 stdout，级别由 TREENING_LOG_LEVEL 控制。
+
+    只在根 logger 尚无 handler 时才添加，避免 gunicorn 等宿主重复叠加。
+    """
+    level_name = (config.LOG_LEVEL or "INFO").upper()
+    level = getattr(logging, level_name, logging.INFO)
+    root = logging.getLogger()
+    root.setLevel(level)
+    if not any(isinstance(h, logging.StreamHandler) for h in root.handlers):
+        handler = logging.StreamHandler()
+        handler.setFormatter(logging.Formatter(_REQUEST_LOG_FORMAT))
+        root.addHandler(handler)
+    app.logger.setLevel(level)
 
 
 def _persistent_secret() -> str:
@@ -65,12 +88,33 @@ def _seed_legacy_user_configs(store: TreeStore) -> None:
     for user in store.list_users():
         if store.has_user_config(user["id"]):
             continue
+        # 不播种 persona：春宁是底座人设（用户空配置时由 config.persona() 兜底），
+        # 文本框只承担"覆盖/重置"，不应把默认写死进用户配置。
         store.save_user_config(
             user["id"],
-            persona=config.persona(),
             branch_labels=config.branch_labels(),
             deconstruction_enabled=config.DECONSTRUCTION_ENABLED,
         )
+
+
+# 旧版 settings.json 默认只开了三个提问模块（矛盾论/实践论关闭）的播种集合。
+# 用于把这类「从未主动选择的旧默认」账号补全为全部五个拆解模块。
+_LEGACY_DECONSTRUCTION_SEED = {"check_question", "reflect_question", "inspire_question"}
+
+
+def _upgrade_user_deconstruction_defaults(store: TreeStore) -> None:
+    """把旧版默认播种的账号补全为全部五个拆解模块（默认全开）。
+
+    只处理「拆解开关恰好等于旧版三问集合」的配置，绝不覆盖用户自己的主动选择；
+    幂等：升级完成后不再有匹配行。
+    """
+    all_blocks = list(config.ALL_DECONSTRUCTION_BLOCKS)
+    for user in store.list_users():
+        cfg = store.get_user_config(user["id"]) or {}
+        enabled = cfg.get("deconstruction_enabled")
+        if isinstance(enabled, list) and set(enabled) == _LEGACY_DECONSTRUCTION_SEED:
+            store.save_user_config(user["id"], deconstruction_enabled=all_blocks)
+            logger.info("upgraded user %s deconstruction to all modules", user["id"])
 
 
 def create_app() -> Flask:
@@ -94,10 +138,43 @@ def create_app() -> Flask:
     # 一次性迁移：把旧版全局配置（data/persona.md + settings.json）播种到
     # 每个尚无用户级配置的账号，保证既有用户升级后不丢人设/命名/拆解开关。
     _seed_legacy_user_configs(store)
+    # 拆解模块默认全开：旧版播种的「只开三问」账号补全矛盾论/实践论。
+    _upgrade_user_deconstruction_defaults(store)
 
     from .blueprints import blueprints
     for bp in blueprints:
         app.register_blueprint(bp)
+
+    _configure_logging(app)
+
+    @app.before_request
+    def _request_start():
+        """为每个请求生成 request_id 并记录开始时间，用于日志关联与耗时统计。"""
+        request.environ["request_id"] = uuid.uuid4().hex[:12]
+        request.environ["_start_time"] = time.time()
+
+    @app.after_request
+    def _request_log(resp):
+        """结构化请求日志：方法 / 路径 / 状态码 / 耗时 / request_id / 来源 IP。
+
+        X-Request-Id 写回响应头，方便前端或下游在排查问题时带回同一 id。
+        """
+        request_id = request.environ.get("request_id", "-")
+        start = request.environ.get("_start_time", time.time())
+        elapsed_ms = int((time.time() - start) * 1000)
+        resp.headers.setdefault("X-Request-Id", request_id)
+        # 静态资源与健康检查不逐条打 INFO 日志，避免噪音
+        if not request.path.startswith("/static/") and request.path != "/api/health":
+            app.logger.info(
+                "%s %s -> %d (%dms) rid=%s ip=%s",
+                request.method,
+                request.path,
+                resp.status_code,
+                elapsed_ms,
+                request_id,
+                request.remote_addr or "-",
+            )
+        return resp
 
     @app.before_request
     def _guard():

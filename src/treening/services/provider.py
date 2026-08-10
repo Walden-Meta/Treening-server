@@ -63,6 +63,7 @@ class TreeProvider:
         max_context_messages: int = 14,
         persona: str = "",
         deconstruction_enabled: list[str] | None = None,
+        thinking_budget_tokens: int = 0,
     ):
         self.methodology = methodology
         self.api_key = api_key.strip()
@@ -71,6 +72,8 @@ class TreeProvider:
         self.model = model.strip()
         self.timeout = timeout
         self.max_context_messages = max(1, int(max_context_messages))
+        # 推理模型（deepseek-v4 等）思考预算上限；0 = 不发送 thinking 参数
+        self.thinking_budget_tokens = max(0, int(thinking_budget_tokens or 0))
         self.system_prompt = methodology.prompt("system.md")
         # 个性化人设单独保存，在 _messages 拼接到 system 最末尾（效力最强）
         self.persona = persona.strip() if persona else ""
@@ -162,8 +165,22 @@ class TreeProvider:
             parts.append(footer)
         return "\n\n".join(parts)
 
-    def _anthropic_body(self, messages, max_tokens: int) -> dict:
-        """把带 system 的 OpenAI 风格 messages 转成 Anthropic Messages body。"""
+    def _anthropic_body(
+        self, messages, max_tokens: int, thinking_mode: str = "auto"
+    ) -> dict:
+        """把带 system 的 OpenAI 风格 messages 转成 Anthropic Messages body。
+
+        thinking_mode 三态：
+          - "auto"      ：按 self.thinking_budget_tokens 决定（>0 发 enabled 上限）
+          - "omitted"   ：完全不发 thinking 键。deepseek-v4 在纯正文提示下自然思考
+                          （实测 117–480 字符）而不溢出，质量优于关思考。
+          - "disabled"  ：显式 thinking: {"type": "disabled"}，用于结构化提取等
+                          必须杜绝思考溢出的可靠性优先调用。
+
+        背景：deepseek-v4-flash 的思考长度并不受 budget_tokens 约束（实测给 512
+        仍思考到 4000+ 字符），一旦提示里带 8 键 JSON 契约，思考会把 max_tokens
+        吃光导致正文为空；因此两阶段生成把「正文」与「结构化字段」拆开处理。
+        """
         system_parts = [m["content"] for m in messages if m.get("role") == "system"]
         turns = [
             {"role": m["role"], "content": m["content"]}
@@ -173,9 +190,23 @@ class TreeProvider:
         body: dict[str, Any] = {"model": self.model, "max_tokens": max_tokens, "messages": turns}
         if system_parts:
             body["system"] = "\n\n".join(system_parts)
+        if thinking_mode == "disabled":
+            body["thinking"] = {"type": "disabled"}
+        elif thinking_mode == "omitted":
+            pass  # 不发 thinking：让推理模型自然思考，纯正文下保持短小
+        elif self.thinking_budget_tokens:
+            body["thinking"] = {
+                "type": "enabled",
+                "budget_tokens": self.thinking_budget_tokens,
+            }
         return body
 
-    def _request(self, messages: list[dict[str, str]], max_tokens: int = 1200) -> str:
+    def _request(
+        self,
+        messages: list[dict[str, str]],
+        max_tokens: int = 1200,
+        thinking_mode: str = "auto",
+    ) -> str:
         try:
             if self.anthropic:
                 response = requests.post(
@@ -185,7 +216,9 @@ class TreeProvider:
                         "anthropic-version": "2023-06-01",
                         "Content-Type": "application/json",
                     },
-                    json=self._anthropic_body(messages, max_tokens),
+                    json=self._anthropic_body(
+                        messages, max_tokens, thinking_mode=thinking_mode
+                    ),
                     timeout=self.timeout,
                 )
             else:
@@ -499,7 +532,98 @@ class TreeProvider:
         side_context: list[dict[str, Any]],
         interaction_type: str,
     ) -> str:
-        return self._request(self._messages(path, side_context, interaction_type))
+        return self._request(
+            self._messages(path, side_context, interaction_type),
+            thinking_mode="omitted",
+        )
+
+    def _build_extraction_system(self) -> str:
+        """阶段 2 的提取提示词：只要求一个 JSON，字段语义来自 deconstruction.md。
+
+        两个摘要是紧凑内置说明；五个拆解字段按 deconstruction_enabled 原样拼接
+        methodology 中的分节（单一事实来源）；被关闭的字段明确要求空字符串。
+        """
+        parts: list[str] = [
+            "你是一个学习内容的结构化拆解助手。根据下方「问题」与「回答」，"
+            "只输出一个 JSON 对象，包含以下键（均为简体中文字符串）：",
+        ]
+        parts.append(
+            "question_summary：一句话概括用户问题，不超过 50 字，是可独立理解的"
+            "记忆提示；概括内容实质而非包装，不写“关于…”“这是一个…”，不评判对错。"
+        )
+        parts.append(
+            "answer_summary：一句话概括回答的核心结论或机制，不超过 50 字；"
+            "不写“这段回答是…”，不以“关于”开头，不评价。"
+        )
+        blocks = self.deconstruction_blocks
+        for key in self._DECON_BLOCK_ORDER:
+            if key in self.deconstruction_enabled and blocks.get(key):
+                parts.append(blocks[key])
+        disabled = [k for k in self._DECON_BLOCK_ORDER if k not in self.deconstruction_enabled]
+        if disabled:
+            parts.append("以下字段本期不要求内容，一律返回空字符串：" + "、".join(disabled))
+        parts.append(
+            "约束：任一字段若无把握给出真内容，就诚实返回空字符串，不要编造；"
+            "三个问题类型必须不同（预测/迁移/对比/反例/边界轮换），禁止同一腔调；"
+            "只输出 JSON 对象本身，不要 markdown 代码块，不要任何其他文字，直接以 { 开头。"
+        )
+        return "\n\n".join(parts)
+
+    @classmethod
+    def _decode_extract_response(cls, raw: str) -> dict[str, str] | None:
+        """解析阶段 2 的 7 字段 JSON（不含 answer）。解析失败返回 None。"""
+        candidate = raw.strip()
+        if candidate.startswith("```"):
+            candidate = candidate.strip("`").strip()
+            if candidate.lower().startswith("json"):
+                candidate = candidate[4:].strip()
+        payload: Any = None
+        try:
+            parsed = json.loads(candidate)
+            if isinstance(parsed, dict):
+                payload = parsed
+        except ValueError:
+            payload = None
+        if payload is None:
+            start = candidate.find("{")
+            end = candidate.rfind("}")
+            body = candidate[start + 1:end] if start >= 0 and end > start else candidate
+            payload = cls._scan_keys(body)
+        if not isinstance(payload, dict):
+            return None
+        return {
+            "question_summary": cls._normalize_summary(payload.get("question_summary")),
+            "answer_summary": cls._normalize_summary(payload.get("answer_summary")),
+            "contradiction": cls._normalize_block(payload.get("contradiction"), 100),
+            "practice": cls._normalize_block(payload.get("practice"), 100),
+            "check_question": cls._normalize_block(payload.get("check_question"), 60),
+            "reflect_question": cls._normalize_block(payload.get("reflect_question"), 60),
+            "inspire_question": cls._normalize_block(payload.get("inspire_question"), 60),
+        }
+
+    def _extract_answer_blocks(self, question: str, answer: str) -> dict[str, str]:
+        """阶段 2：短任务从「问题 + 正文」提取 7 个结构化字段。
+
+        关闭思考，任务是短小的 JSON 输出，实测 3-4s 内稳定返回完整合法 JSON；
+        解析失败返回全空字段（由调用方保留正文兜底）。
+        """
+        messages = [
+            {"role": "system", "content": self._build_extraction_system()},
+            {"role": "user", "content": f"问题：{question}\n\n回答：{answer}"},
+        ]
+        raw = self._request(messages, max_tokens=900, thinking_mode="disabled")
+        blocks = self._decode_extract_response(raw)
+        if blocks is None:
+            return {
+                "question_summary": "", "answer_summary": "",
+                "contradiction": "", "practice": "",
+                "check_question": "", "reflect_question": "", "inspire_question": "",
+            }
+        # 开关即契约：被关闭的拆解字段即使模型给了内容也强制置空
+        for key in self._DECON_BLOCK_ORDER:
+            if key not in self.deconstruction_enabled:
+                blocks[key] = ""
+        return blocks
 
     def answer_with_blocks(
         self,
@@ -507,41 +631,55 @@ class TreeProvider:
         side_context: list[dict[str, Any]],
         interaction_type: str,
     ) -> dict[str, str]:
-        raw = self._request(
-            self._messages(path, side_context, interaction_type, include_summaries=True),
-            max_tokens=1900,
-        )
-        decoded = self._decode_answer_blocks(raw)
-        if decoded:
-            return decoded
-        # 解析失败时的兜底：先尝试从 JSON 对象里提取 answer，避免把整段
-        # JSON/fence 原文暴露给用户；提取不到才回退到原文（并还原转义）。
-        candidate = raw.strip()
-        if candidate.startswith("```"):
-            candidate = candidate.strip("`").strip()
-            if candidate.lower().startswith("json"):
-                candidate = candidate[4:].strip()
-        start = candidate.find("{")
-        end = candidate.rfind("}")
-        if start >= 0 and end > start:
+        """两阶段生成：正文可靠返回（保思考质量）+ 结构化字段稳定提取。
+
+        背景：deepseek-v4-flash 的思考长度不受 budget_tokens 约束，单次调用里
+        要求「长正文 + 8 键 JSON」会让思考暴涨并吃光 max_tokens，正文时有时无
+        （本轮三次学习请求全部因此失败）。拆成两次调用：
+          - 阶段 1：仅生成教学正文（不要求 JSON）。纯正文提示下模型自然思考
+            保持短小（117–480 字符），不溢出且回答更有洞察；万一仍溢出，
+            降级用「关思考」重试一次兜底。
+          - 阶段 2：短任务提取 question_summary / answer_summary 与五个拆解
+            字段，固定关思考（提取任务下自然思考会溢出，实测 1/3 截断）。
+        阶段 2 即便失败也保留正文，只让摘要/拆解字段留空，不再整体失败。
+        """
+        # 阶段 1：正文。先自然思考（质量优先）；空回答时降级关思考重试。
+        # max_tokens 是 deepseek 上「思考 + 正文」共享的预算 = 思维深度上限。
+        # 4000：正常问题自然思考有界（≤480 字符）实际消耗不变；个别难题思考
+        # 可加深到 1500–2500 token 而不挤掉正文。若思考过深触发 45s 超时，
+        # 会走下方降级重试（关思考），不会让用户硬等。
+        answer = ""
+        last_error: TreeProviderError | None = None
+        for mode in ("omitted", "disabled"):
             try:
-                fragment = json.loads(candidate[start : end + 1])
-            except ValueError:
-                fragment = None
-            if isinstance(fragment, dict):
-                inner = fragment.get("answer")
-                if isinstance(inner, str) and inner.strip():
-                    return {
-                        "answer": self._unescape_escapes(inner).strip(),
-                        "question_summary": "", "answer_summary": "",
-                        "contradiction": "", "practice": "",
-                        "check_question": "", "reflect_question": "", "inspire_question": "",
-                    }
-        return {
-            "answer": self._unescape_escapes(raw), "question_summary": "", "answer_summary": "",
-            "contradiction": "", "practice": "",
-            "check_question": "", "reflect_question": "", "inspire_question": "",
-        }
+                answer = self._request(
+                    self._messages(path, side_context, interaction_type),
+                    max_tokens=4000,
+                    thinking_mode=mode,
+                )
+                break
+            except TreeProviderError as exc:
+                last_error = exc
+        if not answer:
+            raise last_error or TreeProviderError("provider returned an empty answer")
+
+        question = ""
+        for node in reversed(path):
+            if node.get("role") == "user":
+                question = str(node.get("content", ""))[:2000]
+                break
+
+        # 阶段 2：结构化字段。失败不致命，正文已到手。
+        try:
+            blocks = self._extract_answer_blocks(question, answer)
+        except TreeProviderError:
+            blocks = {
+                "question_summary": "", "answer_summary": "",
+                "contradiction": "", "practice": "",
+                "check_question": "", "reflect_question": "", "inspire_question": "",
+            }
+        blocks["answer"] = answer
+        return blocks
 
     def answer_with_summaries(
         self,
@@ -571,7 +709,7 @@ class TreeProvider:
                 "content": f"节点角色：{role}\n节点类型：{branch_type}\n节点内容：{content[:4000]}",
             },
         ]
-        raw = self._request(messages, max_tokens=220)
+        raw = self._request(messages, max_tokens=220, thinking_mode="disabled")
         candidate = raw.strip()
         if candidate.startswith("```"):
             candidate = candidate.strip("`").strip()

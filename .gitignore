@@ -18,3 +18,6 @@ docker-data/
 # 打包产物
 build/
 dist/
+
+# Docker 构建产物
+*.img.gz

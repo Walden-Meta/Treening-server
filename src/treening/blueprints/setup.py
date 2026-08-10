@@ -1,7 +1,8 @@
 """首次运行向导 API（BYO-Key 配置）。
 
 全局配置（API Key / 地址 / 模型）由管理员维护；
-个性化配置（人设 / 命名 / 拆解开关）按用户隔离，每个登录用户管理自己的。
+模型配置也支持按用户隔离（每个登录用户可用自己的 Key/地址/模型，
+空字段回退全局默认）；人设 / 命名 / 拆解开关 / 布局同样按用户隔离。
 """
 from __future__ import annotations
 
@@ -58,12 +59,22 @@ def get_setup():
     user_cfg = _store().get_user_config(user["id"]) if user else {}
     user_cfg = user_cfg or {}
     key = config.API_KEY.strip()
+    user_key = str(user_cfg.get("api_key") or "").strip()
+    user_api_url = str(user_cfg.get("api_url") or "").strip()
+    user_model = str(user_cfg.get("model") or "").strip()
     return jsonify({
         "configured": bool(key),
         "key_hint": _mask_key(key),
         "api_url": config.API_URL,
         "model": config.MODEL,
         "timeout": config.PROVIDER_TIMEOUT_SECONDS,
+        # 当前登录用户自己的模型配置（空 = 该字段跟随全局）
+        "user_key_hint": _mask_key(user_key),
+        "user_api_url": user_api_url,
+        "user_model": user_model,
+        "effective_key_configured": bool(user_key or key),
+        "effective_api_url": user_api_url or config.API_URL,
+        "effective_model": user_model or config.MODEL,
         "persona": user_cfg.get("persona", ""),
         "branch_labels": _branch_labels_for(user_cfg),
         "layout_prefs": layout_prefs_for(user_cfg),
@@ -126,6 +137,76 @@ def save():
     })
     config.reload()
     return jsonify({"ok": True, "configured": True})
+
+
+def _validate_api_url(value: str) -> str | None:
+    """校验接口地址，非法时返回错误信息。"""
+    if value and not value.startswith(("http://", "https://")):
+        return "接口地址需要以 http:// 或 https:// 开头"
+    return None
+
+
+@setup_bp.route("/model", methods=["POST"])
+def save_user_model():
+    """保存当前登录用户自己的模型配置（按用户隔离）。
+
+    留空 = 该字段跟随全局默认（管理员配置）。为防 Key 外泄：
+    一旦自定义接口地址或模型，就必须同时提供自己的 API Key。
+    """
+    user = _current_user()
+    if not user:
+        return jsonify({"ok": False, "error": "未登录"}), 401
+    data = request.get_json(silent=True) or {}
+    api_key = str(data.get("api_key", "")).strip()
+    api_url = str(data.get("api_url", "")).strip()
+    model = str(data.get("model", "")).strip()
+    url_err = _validate_api_url(api_url)
+    if url_err:
+        return jsonify({"ok": False, "error": url_err}), 400
+    if (api_url or model) and not api_key:
+        return jsonify({
+            "ok": False,
+            "error": "自定义接口或模型时需要同时提供你自己的 API Key，否则会使用全局 Key",
+        }), 400
+    _store().save_user_config(
+        user["id"], api_key=api_key, api_url=api_url, model=model,
+    )
+    return jsonify({
+        "ok": True,
+        "key_hint": _mask_key(api_key),
+        "api_url": api_url,
+        "model": model,
+    })
+
+
+@setup_bp.route("/test-model", methods=["POST"])
+def test_user_model():
+    """测试当前登录用户自己的模型配置（未保存，仅连通性测试）。
+
+    覆盖值优先于用户已保存配置，用户已保存配置优先于全局默认。
+    """
+    user = _current_user()
+    if not user:
+        return jsonify({"ok": False, "error": "未登录"}), 401
+    data = request.get_json(silent=True) or {}
+    user_cfg = _store().get_user_config(user["id"]) or {}
+    stored_key = str(user_cfg.get("api_key") or "").strip()
+    stored_url = str(user_cfg.get("api_url") or "").strip()
+    stored_model = str(user_cfg.get("model") or "").strip()
+    api_key = str(data.get("api_key", "")).strip() or stored_key or config.API_KEY.strip()
+    api_url = str(data.get("api_url", "")).strip() or stored_url or config.API_URL
+    model = str(data.get("model", "")).strip() or stored_model or config.MODEL
+    url_err = _validate_api_url(api_url)
+    if url_err:
+        return jsonify({"ok": False, "error": url_err}), 400
+    if not api_key:
+        return jsonify({"ok": False, "error": "API Key 不能为空"}), 400
+    ok, error = TreeProvider.test_connection(
+        api_key, api_url, model, int(config.PROVIDER_TIMEOUT_SECONDS)
+    )
+    if ok:
+        return jsonify({"ok": True, "model": model, "api_url": api_url})
+    return jsonify({"ok": False, "error": error}), 400
 
 
 @setup_bp.route("/persona", methods=["POST"])

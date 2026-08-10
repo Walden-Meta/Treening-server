@@ -47,9 +47,17 @@ def _identity() -> str:
 
 
 def _user_config() -> dict[str, Any]:
-    """当前登录用户的个性化配置（persona/命名/拆解开关）。无记录时返回空。"""
+    """当前登录用户的个性化配置（persona/命名/拆解开关/模型）。无记录时返回空。"""
     cfg = _store().get_user_config(_identity())
     return cfg or {}
+
+
+def _model_config_for(user_cfg: dict[str, Any]) -> tuple[str, str, str]:
+    """解析用户实际生效的模型配置：用户自设字段优先，空字段回退全局默认。"""
+    api_key = str(user_cfg.get("api_key") or "").strip() or config.API_KEY
+    api_url = str(user_cfg.get("api_url") or "").strip() or config.API_URL
+    model = str(user_cfg.get("model") or "").strip() or config.MODEL
+    return api_key, api_url, model
 
 
 def _branch_labels_for(user_cfg: dict[str, Any]) -> dict[str, str]:
@@ -149,15 +157,17 @@ def _run_job(app, job_id: str, user_id: str) -> None:
             )
             # 后台线程无请求上下文，直接用传入的 user_id 读用户配置
             user_cfg = _store().get_user_config(user_id) or {}
+            api_key, api_url, model = _model_config_for(user_cfg)
             provider = TreeProvider(
                 _methodology(),
-                config.API_KEY,
-                config.API_URL,
-                config.MODEL,
+                api_key,
+                api_url,
+                model,
                 int(config.PROVIDER_TIMEOUT_SECONDS),
                 context_limit,
-                user_cfg.get("persona", ""),
+                user_cfg.get("persona") or config.persona(),
                 _deconstruction_for(user_cfg),
+                int(config.THINKING_BUDGET_TOKENS),
             )
             blocks = provider.answer_with_blocks(
                 path,
@@ -176,7 +186,7 @@ def _run_job(app, job_id: str, user_id: str) -> None:
             )
             assistant_metadata = {
                 "job_id": job_id,
-                "model": config.MODEL,
+                "model": model,
                 "summary": answer_summary,
                 "contradiction": blocks["contradiction"],
                 "practice": blocks["practice"],
@@ -282,10 +292,16 @@ def get_session_by_id(session_id: str):
 @api_bp.route("/sessions/<session_id>", methods=["PATCH"])
 def update_session(session_id: str):
     data = request.get_json(silent=True) or {}
-    updated = _store().update_session(
+    user_id = _identity()
+    store = _store()
+    new_title = data.get("title") if isinstance(data.get("title"), str) else None
+    # 重名保护：同用户其他活跃主题已占用该标题时拒绝修改，前端可据此提示
+    if new_title and store.session_title_taken(user_id, new_title, exclude_session_id=session_id):
+        return jsonify({"error": "已存在同名学习主题，请换一个名称", "code": "title_conflict"}), 409
+    updated = store.update_session(
         session_id,
-        _identity(),
-        title=data.get("title") if isinstance(data.get("title"), str) else None,
+        user_id,
+        title=new_title,
         summary=data.get("summary") if isinstance(data.get("summary"), str) else None,
     )
     if not updated:
@@ -326,18 +342,20 @@ def summarize_node(session_id: str, node_id: str):
     existing = TreeProvider._normalize_summary(existing)
     if existing:
         return jsonify({"summary": existing, "node": node})
-    if not config.API_KEY:
-        return jsonify({"error": "学习服务尚未配置", "code": "tree_provider_unconfigured"}), 503
     user_cfg = _user_config()
+    api_key, api_url, model = _model_config_for(user_cfg)
+    if not api_key:
+        return jsonify({"error": "学习服务尚未配置", "code": "tree_provider_unconfigured"}), 503
     provider = TreeProvider(
         _methodology(),
-        config.API_KEY,
-        config.API_URL,
-        config.MODEL,
+        api_key,
+        api_url,
+        model,
         int(config.PROVIDER_TIMEOUT_SECONDS),
         1,
-        user_cfg.get("persona", ""),
+        user_cfg.get("persona") or config.persona(),
         _deconstruction_for(user_cfg),
+        int(config.THINKING_BUDGET_TOKENS),
     )
     try:
         summary = provider.summarize_node(
@@ -428,7 +446,9 @@ def ask():
         return jsonify({"error": "问题过长，请缩短后重试", "code": "tree_question_too_long"}), 413
     if interaction_type not in INTERACTION_TYPES:
         return jsonify({"error": "不支持的交互类型", "code": "tree_interaction_invalid"}), 400
-    if not config.API_KEY:
+    user_cfg = _user_config()
+    api_key = _model_config_for(user_cfg)[0]
+    if not api_key:
         return jsonify({"error": "学习服务尚未配置", "code": "tree_provider_unconfigured"}), 503
 
     store = _store()

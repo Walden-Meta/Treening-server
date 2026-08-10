@@ -32,8 +32,42 @@
   };
   const layoutPrefsError = $("#layout-prefs-error");
   const layoutPrefsSaveBtn = $("#setup-layout-prefs-save");
+  const userModelCard = $("#setup-user-model");
+  const userModelForm = $("#setup-user-model-form");
+  const userModelError = $("#setup-user-model-error");
+  const userKeyInput = $("#setup-user-api-key");
+  const userUrlInput = $("#setup-user-api-url");
+  const userModelInput = $("#setup-user-model");
+  const userKeyHint = $("#setup-user-key-hint");
+  const userModelTestBtn = $("#setup-user-model-test");
+  const userModelSaveBtn = $("#setup-user-model-save");
+  const userModelResetBtn = $("#setup-user-model-reset");
 
   let hasExistingKey = false;
+
+  function fillUserModel(d) {
+    if (!userModelCard) return;
+    userUrlInput.value = typeof d.user_api_url === "string" ? d.user_api_url : "";
+    userModelInput.value = typeof d.user_model === "string" ? d.user_model : "";
+    const userKey = typeof d.user_key_hint === "string" ? d.user_key_hint.trim() : "";
+    if (userKey) {
+      userKeyHint.hidden = false;
+      userKeyHint.textContent = "已配置 " + userKey + "，留空则跟随全局默认";
+      userKeyInput.placeholder = "留空则跟随全局默认";
+    } else {
+      userKeyHint.hidden = true;
+      userKeyInput.placeholder = "sk-...（留空 = 跟随全局）";
+    }
+  }
+
+  async function postUserModel(payload) {
+    const res = await fetch("/api/setup/model", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    return await res.json();
+  }
 
   // 预填当前配置（Key 只给掩码提示，不回传明文）
   fetch("/api/setup")
@@ -74,17 +108,19 @@
         backLink.hidden = false;
         skipLink.hidden = true;
       }
+      // 我的模型服务卡片：预填当前登录用户自己的配置（Key 只给掩码）
+      fillUserModel(d);
       // 首启：无任何用户时只显示创建管理员账号
       const hasUsers = Boolean(d.has_users);
       const isAdmin = Boolean(d.is_admin);
       const registerSection = $("#setup-register");
       if (registerSection) registerSection.hidden = hasUsers;
       if (!hasUsers) {
-        for (const el of document.querySelectorAll("#setup-global, .persona-editor, #setup-nonadmin-note")) {
+        for (const el of document.querySelectorAll("#setup-global, #setup-user-model, .persona-editor, #setup-nonadmin-note")) {
           el.hidden = true;
         }
       } else if (!isAdmin) {
-        // 普通用户：隐藏全局模型配置区，保留个性化配置
+        // 普通用户：隐藏全局模型配置区，保留「我的模型服务」+ 个性化配置
         $("#setup-global").hidden = true;
         const note = $("#setup-nonadmin-note");
         if (note) note.hidden = false;
@@ -141,6 +177,79 @@
       showError("保存失败，请重试");
     }
   });
+
+  // ── 我的模型服务（按用户隔离，空字段回退全局默认） ──
+  if (userModelCard) {
+    function userModelPayload() {
+      return {
+        api_key: userKeyInput.value.trim(),
+        api_url: userUrlInput.value.trim(),
+        model: userModelInput.value.trim(),
+      };
+    }
+    userModelTestBtn.addEventListener("click", async () => {
+      userModelTestBtn.disabled = true;
+      userModelTestBtn.textContent = "测试中…";
+      userModelError.textContent = "";
+      try {
+        const res = await fetch("/api/setup/test-model", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(userModelPayload()),
+        });
+        const d = await res.json();
+        if (!res.ok || !d.ok) { userModelError.textContent = d.error || "测试失败"; return; }
+        userModelError.textContent = "✓ 连接成功（" + d.model + "）";
+      } catch (_) {
+        userModelError.textContent = "无法连接服务，请重试";
+      } finally {
+        userModelTestBtn.disabled = false;
+        userModelTestBtn.textContent = "测试连接";
+      }
+    });
+
+    userModelSaveBtn.addEventListener("click", async () => {
+      userModelSaveBtn.disabled = true;
+      userModelSaveBtn.textContent = "保存中…";
+      userModelError.textContent = "";
+      try {
+        const d = await postUserModel(userModelPayload());
+        if (!d.ok) { userModelError.textContent = d.error || "保存失败"; return; }
+        userKeyInput.value = "";
+        userUrlInput.value = typeof d.api_url === "string" ? d.api_url : "";
+        userModelInput.value = typeof d.model === "string" ? d.model : "";
+        fillUserModel({
+          user_key_hint: d.key_hint || "",
+          user_api_url: d.api_url || "",
+          user_model: d.model || "",
+        });
+        userModelError.textContent = "✓ 已保存，立即生效";
+      } catch (_) {
+        userModelError.textContent = "保存失败，请重试";
+      } finally {
+        userModelSaveBtn.disabled = false;
+        userModelSaveBtn.textContent = "保存";
+      }
+    });
+
+    userModelResetBtn.addEventListener("click", async () => {
+      userModelResetBtn.disabled = true;
+      userModelError.textContent = "";
+      try {
+        const d = await postUserModel({ api_key: "", api_url: "", model: "" });
+        if (!d.ok) { userModelError.textContent = d.error || "清除失败"; return; }
+        userKeyInput.value = "";
+        userUrlInput.value = "";
+        userModelInput.value = "";
+        fillUserModel({ user_key_hint: "", user_api_url: "", user_model: "" });
+        userModelError.textContent = "✓ 已恢复跟随全局默认";
+      } catch (_) {
+        userModelError.textContent = "清除失败，请重试";
+      } finally {
+        userModelResetBtn.disabled = false;
+      }
+    });
+  }
 
   personaSaveBtn.addEventListener("click", async () => {
     const persona = personaInput.value.trim();

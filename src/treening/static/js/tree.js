@@ -33,6 +33,8 @@
     ty: 0,
     width: 1,
     height: 1,
+    minX: 0,
+    minY: 0,
     positions: new Map(),
     model: { nodes: [], nodeMap: new Map(), children: new Map(), roots: [], edges: [], warnings: [] },
     elements: new Map(),
@@ -122,6 +124,7 @@
     listSessions() { return this.fetchJson("/api/quiz/sessions"); },
     getSessionById(sessionId) { return this.fetchJson(`/api/quiz/sessions/${encodeURIComponent(sessionId)}`); },
     deleteSession(sessionId) { return this.fetchJson(`/api/quiz/sessions/${encodeURIComponent(sessionId)}`, { method: "DELETE" }); },
+    updateSession(sessionId, data) { return this.fetchJson(`/api/quiz/sessions/${encodeURIComponent(sessionId)}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data) }); },
     updateNodeLayout(sessionId, nodeId, layout) { return this.fetchJson(`/api/quiz/sessions/${encodeURIComponent(sessionId)}/nodes/${encodeURIComponent(nodeId)}/layout`, {
       method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(layout),
     }); },
@@ -196,26 +199,101 @@
     const moment = document.createElement("span"); moment.textContent = formatSessionMoment(item.updated_at);
     meta.append(count, moment); content.append(title, meta); button.append(marker, content);
     button.setAttribute("aria-label", `${title.textContent}，${count.textContent}，${moment.textContent}`);
-    button.addEventListener("click", () => {
+    button.addEventListener("click", (event) => {
+      // 标题上的点击交给 title 的双击判定；其余区域直接加载主题
+      if (event.target === title || title.contains(event.target)) return;
       loadSessionById(item.id).catch((error) => appendError(error.message || "历史主题加载失败，请稍后重试。"));
     });
     shell.append(button);
-    if (active) {
-      const deleteButton = document.createElement("button");
-      deleteButton.type = "button"; deleteButton.className = "session-delete-button";
-      const deleteIcon = document.createElement("span");
-      deleteIcon.textContent = "×";
-      deleteIcon.setAttribute("aria-hidden", "true");
-      deleteButton.append(deleteIcon);
-      deleteButton.title = "删除当前学习轨迹";
-      deleteButton.setAttribute("aria-label", `删除学习轨迹：${title.textContent}`);
-      deleteButton.addEventListener("click", (event) => {
-        event.stopPropagation();
-        deleteLearningSession(item, deleteButton);
-      });
-      shell.append(deleteButton);
-    }
+
+    // 双击标题：进入内联改名（单击仍按 250ms 判定，双击不触发加载）
+    let titleClickTimer = null;
+    title.addEventListener("click", (event) => {
+      event.stopPropagation();
+      if (titleClickTimer) {
+        clearTimeout(titleClickTimer); titleClickTimer = null;
+        startTitleEdit(item, title, shell);
+        return;
+      }
+      titleClickTimer = window.setTimeout(() => {
+        titleClickTimer = null;
+        loadSessionById(item.id).catch((error) => appendError(error.message || "历史主题加载失败，请稍后重试。"));
+      }, 250);
+    });
+    title.addEventListener("dblclick", (event) => event.stopPropagation());
+
+    // 删除按钮：所有主题都有，hover 主题框时直接显示
+    const deleteButton = document.createElement("button");
+    deleteButton.type = "button"; deleteButton.className = "session-delete-button";
+    const deleteIcon = document.createElement("span");
+    deleteIcon.textContent = "×";
+    deleteIcon.setAttribute("aria-hidden", "true");
+    deleteButton.append(deleteIcon);
+    deleteButton.title = "删除这条学习轨迹";
+    deleteButton.setAttribute("aria-label", `删除学习轨迹：${title.textContent}`);
+    deleteButton.addEventListener("click", (event) => {
+      event.stopPropagation();
+      deleteLearningSession(item, deleteButton);
+    });
+    shell.append(deleteButton);
     return shell;
+  }
+
+  // 双击标题改名的内联编辑：Enter/失焦保存，Esc 取消；重名冲突时保留输入并提示。
+  function startTitleEdit(item, titleEl, shell) {
+    const originalTitle = titleEl.textContent;
+    const input = document.createElement("input");
+    input.type = "text";
+    input.className = "session-title-editor";
+    input.value = originalTitle;
+    input.maxLength = 120;
+    input.setAttribute("aria-label", "编辑主题名称");
+    titleEl.replaceWith(input);
+    input.focus();
+    input.select();
+
+    let finished = false;
+    const finish = async (save) => {
+      if (finished) return;
+      const value = input.value.trim();
+      if (save && value && value !== originalTitle) {
+        try {
+          const result = await API.updateSession(item.id, { title: value });
+          item.title = result.session?.title || value;
+          titleEl.textContent = item.title || "未命名学习主题";
+          if (item.id === State.sessionId) {
+            State.sessionTitle = item.title || "";
+            if (DOM.workspaceTitle) DOM.workspaceTitle.textContent = State.sessionTitle || "未命名学习主题";
+          }
+          const itemButton = shell?.querySelector(".session-item");
+          const metaText = shell?.querySelector(".session-item-meta")?.textContent?.trim() || "";
+          if (itemButton) itemButton.setAttribute("aria-label", `${titleEl.textContent}，${metaText}`);
+        } catch (error) {
+          finished = false;
+          input.disabled = false;
+          if (error.code === "title_conflict") {
+            input.classList.add("is-conflict");
+            input.setAttribute("aria-invalid", "true");
+            appendError(error.message || "已存在同名学习主题，请换一个名称");
+            input.focus();
+            input.select();
+            return;
+          }
+          appendError(error.message || "主题名称保存失败，请稍后重试。");
+        }
+      }
+      finished = true;
+      input.replaceWith(titleEl);
+      loadSessionHistory();
+    };
+
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") { event.preventDefault(); finish(true); }
+      else if (event.key === "Escape") { event.preventDefault(); finish(false); }
+    });
+    input.addEventListener("blur", () => finish(true));
+    input.addEventListener("click", (event) => event.stopPropagation());
+    input.addEventListener("dblclick", (event) => event.stopPropagation());
   }
 
   function appendSessionGroup(label, sessions, className = "") {
@@ -234,6 +312,13 @@
     if (!sessions.length) {
       const empty = document.createElement("span"); empty.className = "history-empty"; empty.textContent = "暂无历史主题";
       DOM.sessionList.append(empty); return;
+    }
+    // 只有一个主题：直接置顶展示，不套日期分组标题（美观）
+    if (sessions.length === 1) {
+      const item = sessions[0];
+      const draft = Number(item.node_count) <= 0;
+      DOM.sessionList.append(createSessionItem(item, draft));
+      return;
     }
     const groups = window.TreeningHistoryState.groupSessions(sessions);
     appendSessionGroup("今天", groups.today);
@@ -263,9 +348,10 @@
   }
 
   async function deleteLearningSession(item, button) {
-    if (!item?.id || item.id !== State.sessionId) return;
+    if (!item?.id) return;
+    const isActive = item.id === State.sessionId;
     const title = item.title || item.root_question || "未命名学习主题";
-    const pendingWarning = State.pendingJobs.size
+    const pendingWarning = isActive && State.pendingJobs.size
       ? "\n\n当前仍有学习请求正在处理，删除后也会一并停止显示。"
       : "";
     const confirmed = window.confirm(`确定永久删除“${title}”吗？\n\n其中的全部节点和回复都会被删除，且无法撤销。${pendingWarning}`);
@@ -274,6 +360,11 @@
     try {
       const deletedSessionId = item.id;
       await API.deleteSession(deletedSessionId);
+      if (!isActive) {
+        // 删除的是非当前主题：仅刷新历史列表，不打断当前学习
+        await loadSessionHistory();
+        return;
+      }
       State.sessionGeneration += 1;
       clearPendingJobs();
       State.foldedBranchesBySession.delete(deletedSessionId);
@@ -864,18 +955,36 @@
     detailLayer.append(branches);
 
     // 原卡片格：createNodeElement 重建（全部交互天然可用），抽屉常驻
-    const clone = createNodeElement(node);
-    clone.classList.add("is-in-workspace", "is-detail-clone");
     // 源卡在详情工作台内固定尺寸：不跟随外部画布的手动缩放（高度固定值由 CSS 定义）
-    // 树形排版：卡片顶部居中，水平拉长，长度 = 下方提问框宽度的 3/5
+    // 树形排版：回答卡顶部居中，水平拉长，长度 = 下方提问框宽度的 3/5；
+    // 问答对绑定后回答卡宽度扩为原来的 5/4，上方并列发问卡（等宽、高 = 回答固定高的 0.6 倍）
     const composerW = Math.min(760, window.innerWidth - readerWidth - 32);
     const sourceLength = Math.round(composerW * 3 / 5);
-    clone.style.width = `${sourceLength}px`;
+    const answerWidth = Math.round(sourceLength * 5 / 4);
+    const pairStack = document.createElement("div");
+    pairStack.className = "detail-source-stack";
+    let questionClone = null;
+    const parentNode = node.role === "assistant" && node.parent_id ? nodeById(node.parent_id) : null;
+    if (parentNode) {
+      questionClone = createNodeElement(parentNode);
+      questionClone.classList.add("is-in-workspace", "is-detail-clone", "source-question");
+      questionClone.style.width = `${answerWidth}px`;
+      syncNodeBranchUI(questionClone, parentNode);
+      pairStack.append(questionClone);
+      const sourceDivider = document.createElement("div");
+      sourceDivider.className = "detail-source-divider";
+      sourceDivider.setAttribute("aria-hidden", "true");
+      pairStack.append(sourceDivider);
+    }
+    const clone = createNodeElement(node);
+    clone.classList.add("is-in-workspace", "is-detail-clone");
+    clone.style.width = `${answerWidth}px`;
     syncNodeBranchUI(clone, node);      // 分支标签 + 抽屉三选项（标签/占用态/禁用）
-    nodeCell.append(clone);
+    pairStack.append(clone);
+    nodeCell.append(pairStack);
     if (node.role === "assistant") setBranchDrawerOpen(clone, true);
     if (fly) {
-      clone.style.opacity = "0";  // 克隆：淡入前先隐藏
+      pairStack.style.opacity = "0";  // 问答对：淡入前先隐藏
       moduleCells.forEach((cell) => { cell.style.opacity = "0"; });  // 模块卡：飞入前先隐藏
     }
 
@@ -906,7 +1015,7 @@
         branches.append(line);
       });
       if (!fly) return;
-      const originRect = cardRect;  // 源卡 = 生发点
+      const originRect = pairStack.getBoundingClientRect();  // 问答对整体 = 生发点
       visibleModules.forEach((cell) => {
         const rect = cell.getBoundingClientRect();
         const dx = originRect.left - rect.left;
@@ -929,8 +1038,8 @@
         [{ opacity: 0 }, { opacity: 1 }],
         { duration: 320, delay: 260, easing: "ease-out", fill: "both" },
       );
-      // 克隆：直接淡入（轻微收拢放大，无位移）
-      clone.animate(
+      // 问答对整体：直接淡入（轻微收拢放大，无位移）
+      pairStack.animate(
         [
           { opacity: 0, transform: "scale(0.96)" },
           { opacity: 1, transform: "scale(1)" },
@@ -953,7 +1062,7 @@
   function layoutPrefs() {
     const p = State.layoutPrefs || {};
     return {
-      qa_gap: clamp(Number(p.qa_gap) || 44, 16, 200),
+      qa_gap: clamp(Number(p.qa_gap) || 24, 16, 200),
       branch_gap: clamp(Number(p.branch_gap) || 82, 40, 300),
       node_width: clamp(Number(p.node_width) || NODE_DEFAULT_WIDTH, NODE_MIN_WIDTH, NODE_MAX_WIDTH),
       node_height: clamp(Number(p.node_height) || NODE_DEFAULT_HEIGHT, NODE_MIN_HEIGHT, NODE_MAX_HEIGHT),
@@ -1074,7 +1183,8 @@
         height: layout?.height || card.offsetHeight || layoutPrefs().node_height,
       };
     });
-    const result = window.TreeningLayoutState.resolveOverlaps(geometry, anchorId, { gap: 40 });
+    // 画布无墙：重叠避让也允许把节点推到负坐标（左/上），不设 140/90 旧墙
+    const result = window.TreeningLayoutState.resolveOverlaps(geometry, anchorId, { gap: 40, minX: -100000, minY: -100000 });
     for (const nodeId of result.movedIds) {
       const node = nodeById(nodeId);
       const position = result.positions.get(nodeId);
@@ -1087,10 +1197,15 @@
       scheduleNodeLayoutSave(node);
     }
     if (result.movedIds.length) {
-      const maxRight = Math.max(...geometry.map((item) => (result.positions.get(item.id)?.x || item.x) + item.width / 2));
-      const maxBottom = Math.max(...geometry.map((item) => (result.positions.get(item.id)?.y || item.y) + item.height / 2));
-      Graph.width = Math.max(Graph.width, maxRight + 240);
-      Graph.height = Math.max(Graph.height, maxBottom + 180);
+      // 包围盒同步按含负坐标的全量范围扩展，保证 edges/minimap/fit 覆盖推到负方向的节点
+      const minLeft2 = Math.min(0, ...geometry.map((item) => (result.positions.get(item.id)?.x || item.x) - item.width / 2));
+      const minTop2 = Math.min(0, ...geometry.map((item) => (result.positions.get(item.id)?.y || item.y) - item.height / 2));
+      const maxRight = Math.max(0, ...geometry.map((item) => (result.positions.get(item.id)?.x || item.x) + item.width / 2));
+      const maxBottom = Math.max(0, ...geometry.map((item) => (result.positions.get(item.id)?.y || item.y) + item.height / 2));
+      Graph.minX = Math.min(Graph.minX, minLeft2);
+      Graph.minY = Math.min(Graph.minY, minTop2);
+      Graph.width = Math.max(Graph.width, maxRight - Graph.minX + 240);
+      Graph.height = Math.max(Graph.height, maxBottom - Graph.minY + 180);
     }
     return result;
   }
@@ -1167,6 +1282,18 @@
         group.push({ id, x: memberPos.x, y: memberPos.y });
       }
       if (group.length > 1) DOM.studyApp?.classList.add("is-group-dragging");
+    } else {
+      // 问答对绑定：单卡拖动时带动配对卡一起平移（保持相对位置）
+      const partnerId = node.role === "assistant" ? node.parent_id
+        : State.nodes.find((n) => n.role === "assistant" && n.parent_id === node.id)?.id;
+      const partnerPos = partnerId ? Graph.positions.get(partnerId) : null;
+      if (partnerId && partnerPos && partnerId !== node.id) {
+        group = [
+          { id: node.id, x: layout.x, y: layout.y },
+          { id: partnerId, x: partnerPos.x, y: partnerPos.y },
+        ];
+        DOM.studyApp?.classList.add("is-group-dragging");
+      }
     }
     Graph.nodeDrag = {
       node, card, pointerId: event.pointerId, startX: event.clientX, startY: event.clientY,
@@ -1182,6 +1309,29 @@
     if (event.button !== 0) return;
     const beforeSnapshot = captureCanvasSnapshot();
     const layout = setNodeLayout(node, layoutSnapshot(node));
+    // 回答卡右下角 = 问答对整体缩放：发问卡随动，两张卡共享宽度、按当前比例分配高度
+    if (node.role === "assistant") {
+      const qNode = nodeById(node.parent_id);
+      if (qNode) {
+        const qLayout = layoutSnapshot(qNode);
+        const gap = pairGapBetween(qNode, node);  // 实测间距：整体缩放只改尺寸，不改间距
+        const pairTotalH = qLayout.height + gap + layout.height;
+        Graph.nodeResize = {
+          node, card, pointerId: event.pointerId, startX: event.clientX, startY: event.clientY,
+          originWidth: layout.width, originPairH: pairTotalH, gap,
+          split: qLayout.height / pairTotalH,
+          moved: false, beforeSnapshot, pair: qNode,
+          // 视觉锚点 = 发问卡左上角：整对缩放时发问卡顶部不动，只拉右下
+          anchorX: qLayout.x - qLayout.width / 2,
+          anchorY: qLayout.y - qLayout.height / 2,
+        };
+        card.setPointerCapture?.(event.pointerId);
+        card.classList.add("is-node-resizing");
+        DOM.studyApp?.classList.add("is-divider-dragging");  // 问答对整体缩放同样需关闭位移动画
+        event.preventDefault(); event.stopPropagation();
+        return;
+      }
+    }
     const pos = Graph.positions.get(node.id);
     Graph.nodeResize = {
       node, card, pointerId: event.pointerId, startX: event.clientX, startY: event.clientY,
@@ -1195,6 +1345,66 @@
     event.preventDefault(); event.stopPropagation();
   }
 
+  // 问答对间距中心的横细线 = 高度分配把手：上下拖拽重分配发问卡/回答卡高度
+  function beginQADividerDrag(event, edgeData) {
+    if (detailSourceNodeId) return;  // 详情工作台脱离画布自由度：禁拖拽
+    if (event.button !== 0) return;
+    const qNode = nodeById(edgeData.from);
+    const aNode = nodeById(edgeData.to);
+    if (!qNode || !aNode || aNode.role !== "assistant") return;
+    const beforeSnapshot = captureCanvasSnapshot();
+    const qLayout = layoutSnapshot(qNode);
+    const aLayout = layoutSnapshot(aNode);
+    const gap = pairGapBetween(qNode, aNode);  // 实测间距：拖拽只改高度，不改间距
+    Graph.pairDivider = {
+      qNode, aNode, pointerId: event.pointerId, startY: event.clientY,
+      originQHeight: qLayout.height,
+      totalH: qLayout.height + gap + aLayout.height,
+      gap,
+      moved: false, beforeSnapshot,
+      rafId: null,   // 拖拽期间按帧合并写 DOM（高频 pointermove 只记最新目标高度）
+      latestQH: null,
+    };
+    // 拖拽期间关闭卡片位移动画：高度瞬变、位置若带 260ms transition 会滞后，
+    // 两卡追不上指针，可见间距会在拖拽中来回伸缩（"拉灰条间距在动"）。
+    DOM.studyApp?.classList.add("is-divider-dragging");
+    event.preventDefault(); event.stopPropagation();
+  }
+
+  // 问答对两卡当前画布上的实测间距（用渲染位置 Graph.positions 而非已保存坐标）：
+  // buildLayout 已把回答卡纵坐标按生效 qa_gap 重推，渲染位置即配置间距；
+  // 已保存坐标可能来自历史拖拽、残留旧间距，绝不能拿来当基准。
+  // 分界线拖拽与整体缩放一律沿用实测间距：只重分配两卡高度，绝不改写间距。
+  function pairGapBetween(qNode, aNode) {
+    const qPos = Graph.positions.get(qNode.id);
+    const aPos = Graph.positions.get(aNode.id);
+    if (qPos && aPos) {
+      const qH = cardHeight(qNode.id) || layoutPrefs().node_height;
+      const aH = cardHeight(aNode.id) || layoutPrefs().node_height;
+      return aPos.y - aH / 2 - (qPos.y + qH / 2);
+    }
+    const q = layoutSnapshot(qNode);
+    const a = layoutSnapshot(aNode);
+    return a.y - a.height / 2 - (q.y + q.height / 2);
+  }
+
+  // 按给定高度重写问答对两卡：发问卡顶部不动，回答卡跟随，宽度不动
+  function applyQAPairHeights(qNode, aNode, qH, aH, gap) {
+    const qLayout = layoutSnapshot(qNode);
+    const aLayout = layoutSnapshot(aNode);
+    const qTop = qLayout.y - qLayout.height / 2;
+    const newQY = qTop + qH / 2;
+    const newAY = qTop + qH + gap + aH / 2;
+    setNodeLayout(qNode, { ...qLayout, y: newQY, height: qH });
+    setNodeLayout(aNode, { ...aLayout, y: newAY, height: aH });
+    Graph.positions.set(qNode.id, { x: qLayout.x, y: newQY });
+    Graph.positions.set(aNode.id, { x: aLayout.x, y: newAY });
+    const qEl = Graph.elements.get(qNode.id);
+    if (qEl) { qEl.style.left = `${qLayout.x}px`; qEl.style.top = `${newQY}px`; applyNodeLayoutStyle(qNode, qEl); }
+    const aEl = Graph.elements.get(aNode.id);
+    if (aEl) { aEl.style.left = `${aLayout.x}px`; aEl.style.top = `${newAY}px`; applyNodeLayoutStyle(aNode, aEl); }
+  }
+
   function moveNodePointer(event) {
     const drag = Graph.nodeDrag;
     if (drag && drag.pointerId === event.pointerId) {
@@ -1206,10 +1416,9 @@
       // 整组平移：所有选中节点共享同一位移，严格保持相对位置；
       // 钳制按"组的整体边界"计算，避免边缘节点撞边界导致组内错位
       if (drag.group && drag.group.length > 1) {
-        let minX = Infinity, minY = Infinity;
-        for (const member of drag.group) { minX = Math.min(minX, member.x); minY = Math.min(minY, member.y); }
-        const gdx = Math.max(140 - minX, dx);
-        const gdy = Math.max(90 - minY, dy);
+        // 整组共享同一位移，严格保持相对位置；画布四向无墙，不做钳制
+        const gdx = dx;
+        const gdy = dy;
         for (const member of drag.group) {
           const nx = member.x + gdx;
           const ny = member.y + gdy;
@@ -1227,7 +1436,8 @@
         return;
       }
       const layout = nodeLayout(drag.node);
-      setNodeLayout(drag.node, { ...layout, x: Math.max(140, drag.originX + dx), y: Math.max(90, drag.originY + dy) });
+      // 画布无墙：与右/下一样可无限拖出，不做左/上钳制
+      setNodeLayout(drag.node, { ...layout, x: drag.originX + dx, y: drag.originY + dy });
       const pos = drag.node.metadata.layout;
       Graph.positions.set(drag.node.id, { x: pos.x, y: pos.y });  // 同步连线锚点
       const element = Graph.elements.get(drag.node.id);
@@ -1238,11 +1448,59 @@
       event.preventDefault();
       return;
     }
+    const divider = Graph.pairDivider;
+    if (divider && divider.pointerId === event.pointerId) {
+      const dy = (event.clientY - divider.startY) / Graph.scale;
+      if (!divider.moved && Math.abs(dy) < 2) return;
+      divider.moved = true;
+      // 快速拖拽时 pointermove 频率可能高于 60fps：只记最新目标高度，交给一帧只跑一次的
+      // RAF 去写 DOM，避免一帧内多次 layout+reflow 把主线程卡住造成可见抖动。
+      const gap = divider.gap;  // 进入拖拽时捕获的实测间距，拖拽期间保持恒定
+      divider.latestQH = clamp(divider.originQHeight + dy, NODE_MIN_HEIGHT, divider.totalH - gap - NODE_MIN_HEIGHT);
+      if (divider.rafId == null) {
+        divider.rafId = requestAnimationFrame(() => {
+          divider.rafId = null;
+          if (divider.latestQH == null) return;
+          const qH = divider.latestQH;
+          const aH = divider.totalH - divider.gap - qH;
+          applyQAPairHeights(divider.qNode, divider.aNode, qH, aH, divider.gap);
+          queueEdgesRender();
+        });
+      }
+      event.preventDefault();
+      return;
+    }
     const resize = Graph.nodeResize;
     if (resize && resize.pointerId === event.pointerId) {
       const dx = (event.clientX - resize.startX) / Graph.scale;
       const dy = (event.clientY - resize.startY) / Graph.scale;
       if (!resize.moved && Math.hypot(dx, dy) >= 2) resize.moved = true;
+      if (resize.pair) {
+        // 问答对整体缩放：共享宽度、按进入时的比例分配高度、发问卡顶部不动、间距恒定
+        const gap = resize.gap;
+        const newWidth = Math.max(NODE_MIN_WIDTH, resize.originWidth + dx);
+        const newTotalH = Math.max(NODE_MIN_HEIGHT * 2 + gap, resize.originPairH + dy);
+        const newQH = clamp((newTotalH - gap) * resize.split, NODE_MIN_HEIGHT, NODE_MAX_HEIGHT);
+        const newAH = Math.min(Math.max(NODE_MIN_HEIGHT, newTotalH - gap - newQH), usefulCardHeight(resize.card));
+        const qNode = resize.pair;
+        const qLayout = layoutSnapshot(qNode);
+        const aLayout = layoutSnapshot(resize.node);
+        const newQX = resize.anchorX + newWidth / 2;
+        const newQY = resize.anchorY + newQH / 2;
+        const newAX = newQX;
+        const newAY = newQY + newQH / 2 + gap + newAH / 2;
+        setNodeLayout(qNode, { ...qLayout, x: newQX, y: newQY, width: newWidth, height: newQH });
+        setNodeLayout(resize.node, { ...aLayout, x: newAX, y: newAY, width: newWidth, height: newAH });
+        Graph.positions.set(qNode.id, { x: newQX, y: newQY });
+        Graph.positions.set(resize.node.id, { x: newAX, y: newAY });
+        const qEl = Graph.elements.get(qNode.id);
+        if (qEl) { qEl.style.left = `${newQX}px`; qEl.style.top = `${newQY}px`; applyNodeLayoutStyle(qNode, qEl); }
+        const aEl = Graph.elements.get(resize.node.id);
+        if (aEl) { aEl.style.left = `${newAX}px`; aEl.style.top = `${newAY}px`; applyNodeLayoutStyle(resize.node, aEl); }
+        queueEdgesRender();
+        event.preventDefault();
+        return;
+      }
       const layout = nodeLayout(resize.node);
       const newWidth = resize.originWidth + dx;
       const newHeight = Math.min(resize.originHeight + dy, usefulCardHeight(resize.card));
@@ -1293,12 +1551,39 @@
     if (resize && resize.pointerId === event.pointerId) {
       resize.card.releasePointerCapture?.(event.pointerId);
       resize.card.classList.remove("is-node-resizing");
+      DOM.studyApp?.classList.remove("is-divider-dragging");
       if (resize.moved) {
         scheduleNodeLayoutSave(resize.node);
+        if (resize.pair) scheduleNodeLayoutSave(resize.pair);
         resolveResizeOverlaps(resize.node.id);
         pushCanvasUndo(resize.beforeSnapshot);
       }
       Graph.nodeResize = null;
+      refreshGraphGeometry();
+      return;
+    }
+    const divider = Graph.pairDivider;
+    if (divider && divider.pointerId === event.pointerId) {
+      // 若有未落地的 RAF 帧，取消并同步补上最终高度，保证松手时状态完整
+      if (divider.rafId != null) {
+        cancelAnimationFrame(divider.rafId);
+        divider.rafId = null;
+        if (divider.latestQH != null) {
+          const qH = divider.latestQH;
+          const aH = divider.totalH - divider.gap - qH;
+          applyQAPairHeights(divider.qNode, divider.aNode, qH, aH, divider.gap);
+          queueEdgesRender();
+        }
+      }
+      if (divider.moved) {
+        scheduleNodeLayoutSave(divider.qNode);
+        scheduleNodeLayoutSave(divider.aNode);
+        // 分界线拖拽不改变问答对占地（发问卡顶固定、回答卡底恒定），不会产生新重叠；
+        // 且 resolveResizeOverlaps 不识问答对，可能把发问卡单独推开破坏配对间距，故跳过。
+        pushCanvasUndo(divider.beforeSnapshot);
+      }
+      DOM.studyApp?.classList.remove("is-divider-dragging");
+      Graph.pairDivider = null;
       refreshGraphGeometry();
     }
   }
@@ -1703,12 +1988,15 @@
     revealButton.addEventListener("click", (event) => { event.stopPropagation(); revealNode(node.id); });
     concealOverlay.append(semanticSummary, revealButton);
     card.append(concealOverlay);
-    const resizeHandle = document.createElement("span");
-    resizeHandle.className = "node-resize-handle";
-    resizeHandle.setAttribute("aria-hidden", "true");
-    resizeHandle.addEventListener("pointerdown", (event) => beginNodeResize(event, node, card));
-    // 手柄挂在 element 层（而非 card），才能凸出卡片圆角外
-    article.append(resizeHandle);
+    // 问答对绑定：右下角小直角只保留在回答卡上，缩放会带动发问卡一起调整
+    if (node.role === "assistant") {
+      const resizeHandle = document.createElement("span");
+      resizeHandle.className = "node-resize-handle";
+      resizeHandle.setAttribute("aria-hidden", "true");
+      resizeHandle.addEventListener("pointerdown", (event) => beginNodeResize(event, node, card));
+      // 手柄挂在 element 层（而非 card），才能凸出卡片圆角外
+      article.append(resizeHandle);
+    }
     article.append(card);
     if (slots) article.append(slots);
     return article;
@@ -1726,7 +2014,7 @@
   function buildLayout() {
     const nodes = Graph.model.nodes;
     Graph.positions.clear();
-    if (!nodes.length) { Graph.width = 1; Graph.height = 1; return; }
+    if (!nodes.length) { Graph.width = 1; Graph.height = 1; Graph.minX = 0; Graph.minY = 0; return; }
     const { children, roots } = Graph.model;
     // A single-child chain stays vertical: question -> answer is a calm
     // downward rhythm.  Only a real divergence consumes horizontal space.
@@ -1797,11 +2085,31 @@
       const layout = nodeLayout(node);
       if (layout) Graph.positions.set(node.id, { x: layout.x, y: layout.y });
     }
+    // 问答对内部间距永远跟随生效配置 qa_gap：已保存 layout 只保留发问卡位置与
+    // 两卡高度，回答卡纵坐标按「发问卡顶 + 发问卡高 + qa_gap + 回答卡高」重推。
+    // 否则历史拖拽把间距焊死在旧坐标里，改间距后仍显示旧间距（拖灰条"回退到之前"）。
+    for (const node of nodes) {
+      if (node.role !== "assistant") continue;
+      const q = nodeById(node.parent_id);
+      if (!q || q.role !== "user") continue;
+      const qPos = Graph.positions.get(q.id);
+      const aPos = Graph.positions.get(node.id);
+      if (!qPos || !aPos) continue;
+      const qH = cardHeight(q.id) || layoutPrefs().node_height;
+      const aH = cardHeight(node.id) || layoutPrefs().node_height;
+      Graph.positions.set(node.id, { x: aPos.x, y: qPos.y + qH / 2 + qaGap + aH / 2 });
+    }
+    // 画布四向无墙：内容允许进入负坐标（左/上可无限拖），包围盒按全部可见内容（含负数）计算，
+    // 供 edges viewBox / minimap / fit 居中正确覆盖整棵内容。
+    const minLeft = Math.min(0, ...visible.map((node) => (Graph.positions.get(node.id)?.x || 0) - widthOf(node.id) / 2));
+    const minTop = Math.min(0, ...visible.map((node) => (Graph.positions.get(node.id)?.y || 0) - cardHeight(node.id) / 2));
     const maxRight = Math.max(0, ...visible.map((node) => (Graph.positions.get(node.id)?.x || 0) + widthOf(node.id) / 2));
     const maxBottom = Math.max(0, ...visible.map((node) => (Graph.positions.get(node.id)?.y || 0) + cardHeight(node.id) / 2));
-    Graph.width = Math.max(700, cursor + padding - rootGap, maxRight + padding);
+    Graph.minX = minLeft;
+    Graph.minY = minTop;
+    Graph.width = Math.max(700, cursor + padding - rootGap, maxRight - minLeft + padding);
     const lastLayerHeight = layerHeights.get(maxDepth) || 90;
-    Graph.height = Math.max(430, (layerY.get(maxDepth) || top) + lastLayerHeight / 2 + 120, maxBottom + 140);
+    Graph.height = Math.max(430, (layerY.get(maxDepth) || top) + lastLayerHeight / 2 + 120, maxBottom - minTop + 140);
   }
 
   function edgePath(from, to, parentHeight, childHeight) {
@@ -1817,6 +2125,25 @@
     return ["check", "followup", "custom"].includes(edge.branch) ? edge.branch : "question";
   }
 
+  // 问答对内部边（发问→回答）不再画纵向 S 曲线，改为间距中心的一根横向发光细线；
+  // 只有发问卡（user 角色）→ 回答卡（assistant 角色）的边属于问答对内部。
+  function isQAPairEdge(edgeData) {
+    return nodeById(edgeData.from)?.role === "user";
+  }
+
+  function qaDividerGeometry(edgeData, from, to) {
+    const fNode = nodeById(edgeData.from);
+    const tNode = nodeById(edgeData.to);
+    const width = nodeLayout(fNode)?.width || layoutPrefs().node_width;
+    // 两卡中心的中点随卡高差偏移：(from.y+to.y)/2 仅在等高时等于间距中心，
+    // 高度分配改变后需再平移 (qH - aH)/4 才落在发问卡底边与回答卡顶边正中。
+    const qH = nodeLayout(fNode)?.height || cardHeight(edgeData.from) || layoutPrefs().node_height;
+    const aH = nodeLayout(tNode)?.height || cardHeight(edgeData.to) || layoutPrefs().node_height;
+    const midY = (from.y + to.y) / 2 + (qH - aH) / 4;
+    const half = width * 0.375;  // 横细线长 = 卡宽 3/4，水平居中
+    return { midY, half };
+  }
+
   function renderEdges() {
     DOM.edges.replaceChildren(); DOM.edges.setAttribute("width", Graph.width); DOM.edges.setAttribute("height", Graph.height);
     DOM.edges.style.width = `${Graph.width}px`; DOM.edges.style.height = `${Graph.height}px`;
@@ -1828,14 +2155,27 @@
     // a perfectly vertical middle branch. Use graph coordinates so the glow
     // cannot clip the blue path merely because its geometric bbox is narrow.
     glow.setAttribute("filterUnits", "userSpaceOnUse");
-    glow.setAttribute("x", "-64"); glow.setAttribute("y", "-64");
+    glow.setAttribute("x", String(Graph.minX - 64)); glow.setAttribute("y", String(Graph.minY - 64));
     glow.setAttribute("width", String(Graph.width + 128));
     glow.setAttribute("height", String(Graph.height + 128));
     const blur = document.createElementNS(SVG_NS, "feGaussianBlur"); blur.setAttribute("stdDeviation", "2.4"); blur.setAttribute("result", "blur");
     const merge = document.createElementNS(SVG_NS, "feMerge");
     const glowNode = document.createElementNS(SVG_NS, "feMergeNode"); glowNode.setAttribute("in", "blur");
     const sourceNode = document.createElementNS(SVG_NS, "feMergeNode"); sourceNode.setAttribute("in", "SourceGraphic");
-    merge.append(glowNode, sourceNode); glow.append(blur, merge); defs.append(glow); DOM.edges.append(defs);
+    merge.append(glowNode, sourceNode); glow.append(blur, merge); defs.append(glow);
+    // 问答对分界线用弱光滤镜：模糊半径减半，低调不抢视线
+    const softGlow = document.createElementNS(SVG_NS, "filter");
+    softGlow.setAttribute("id", "edge-glow-soft");
+    softGlow.setAttribute("filterUnits", "userSpaceOnUse");
+    softGlow.setAttribute("x", "-64"); softGlow.setAttribute("y", "-64");
+    softGlow.setAttribute("width", String(Graph.width + 128));
+    softGlow.setAttribute("height", String(Graph.height + 128));
+    const softBlur = document.createElementNS(SVG_NS, "feGaussianBlur"); softBlur.setAttribute("stdDeviation", "1.1"); softBlur.setAttribute("result", "blur");
+    const softMerge = document.createElementNS(SVG_NS, "feMerge");
+    const softGlowNode = document.createElementNS(SVG_NS, "feMergeNode"); softGlowNode.setAttribute("in", "blur");
+    const softSourceNode = document.createElementNS(SVG_NS, "feMergeNode"); softSourceNode.setAttribute("in", "SourceGraphic");
+    softMerge.append(softGlowNode, softSourceNode); softGlow.append(softBlur, softMerge); defs.append(softGlow);
+    DOM.edges.append(defs);
 
     const edgeGroups = new Map();
     for (const branch of ["question", ...BRANCH_ORDER]) {
@@ -1851,6 +2191,32 @@
       const from = Graph.positions.get(edgeData.from);
       const to = Graph.positions.get(edgeData.to);
       if (!from || !to) { missingEdges.push(edgeData); continue; }
+      if (isQAPairEdge(edgeData)) {
+        // 问答对内部：间距中心一条横向发光细线（黑/白随主题），可上下拖拽分配高度
+        const { midY, half } = qaDividerGeometry(edgeData, from, to);
+        const group = document.createElementNS(SVG_NS, "g");
+        group.classList.add("qa-divider");
+        group.dataset.from = edgeData.from;
+        group.dataset.to = edgeData.to;
+        group.dataset.relation = edgeData.relation;
+        const line = document.createElementNS(SVG_NS, "line");
+        line.classList.add("graph-edge", "qa-divider-line", edgeColorClass(edgeData));
+        line.setAttribute("x1", String(from.x - half));
+        line.setAttribute("y1", String(midY));
+        line.setAttribute("x2", String(from.x + half));
+        line.setAttribute("y2", String(midY));
+        const hit = document.createElementNS(SVG_NS, "line");
+        hit.classList.add("qa-divider-hit");
+        hit.setAttribute("x1", String(from.x - half));
+        hit.setAttribute("y1", String(midY));
+        hit.setAttribute("x2", String(from.x + half));
+        hit.setAttribute("y2", String(midY));
+        hit.addEventListener("pointerdown", (event) => beginQADividerDrag(event, edgeData));
+        group.append(line, hit);
+        edgeGroups.get(edgeColorClass(edgeData)).append(group);
+        renderedEdges += 1;
+        continue;
+      }
       const edge = document.createElementNS(SVG_NS, "path");
       edge.classList.add("graph-edge", edgeColorClass(edgeData));
       edge.dataset.from = edgeData.from;
@@ -1925,12 +2291,12 @@
 
   function renderMinimap() {
     const visible = Graph.model.nodes.length > 3; DOM.minimap.hidden = !visible; if (!visible) return;
-    DOM.minimapSvg.replaceChildren(); DOM.minimapSvg.setAttribute("viewBox", `0 0 ${Graph.width} ${Graph.height}`);
+    DOM.minimapSvg.replaceChildren(); DOM.minimapSvg.setAttribute("viewBox", `${Graph.minX} ${Graph.minY} ${Graph.width} ${Graph.height}`);
     const defs = document.createElementNS(SVG_NS, "defs");
     const glow = document.createElementNS(SVG_NS, "filter");
     glow.setAttribute("id", "mini-edge-glow");
     glow.setAttribute("filterUnits", "userSpaceOnUse");
-    glow.setAttribute("x", "-64"); glow.setAttribute("y", "-64");
+    glow.setAttribute("x", String(Graph.minX - 64)); glow.setAttribute("y", String(Graph.minY - 64));
     glow.setAttribute("width", String(Graph.width + 128));
     glow.setAttribute("height", String(Graph.height + 128));
     const blur = document.createElementNS(SVG_NS, "feGaussianBlur"); blur.setAttribute("stdDeviation", "2.4"); blur.setAttribute("result", "blur");
@@ -1942,6 +2308,22 @@
     for (const edgeData of Graph.model.edges) {
       const from = Graph.positions.get(edgeData.from), to = Graph.positions.get(edgeData.to);
       if (!from || !to) continue;
+      if (isQAPairEdge(edgeData)) {
+        // 缩略图里问答对的黑/白竖连线换成横短线
+        const { midY } = qaDividerGeometry(edgeData, from, to);
+        const edge = document.createElementNS(SVG_NS, "line");
+        edge.classList.add("mini-edge", "qa-divider", edgeColorClass(edgeData));
+        edge.dataset.from = edgeData.from;
+        edge.dataset.to = edgeData.to;
+        edge.dataset.relation = edgeData.relation;
+        edge.setAttribute("x1", String(from.x - 5));
+        edge.setAttribute("y1", String(midY));
+        edge.setAttribute("x2", String(from.x + 5));
+        edge.setAttribute("y2", String(midY));
+        DOM.minimapSvg.append(edge);
+        renderedEdges += 1;
+        continue;
+      }
       const edge = document.createElementNS(SVG_NS, "path");
       edge.classList.add("mini-edge", edgeColorClass(edgeData));
       edge.dataset.from = edgeData.from;
@@ -1959,7 +2341,7 @@
       rect.setAttribute("x", pos.x - 5); rect.setAttribute("y", pos.y - 4); rect.setAttribute("width", 10); rect.setAttribute("height", 8); rect.setAttribute("rx", 3); DOM.minimapSvg.append(rect);
     }
     const viewportRect = document.createElementNS(SVG_NS, "rect"); viewportRect.classList.add("mini-viewport");
-    const rect = DOM.viewport.getBoundingClientRect(); viewportRect.setAttribute("x", Math.max(0, -Graph.tx / Graph.scale)); viewportRect.setAttribute("y", Math.max(0, -Graph.ty / Graph.scale));
+    const rect = DOM.viewport.getBoundingClientRect(); viewportRect.setAttribute("x", Math.max(Graph.minX, -Graph.tx / Graph.scale)); viewportRect.setAttribute("y", Math.max(Graph.minY, -Graph.ty / Graph.scale));
     viewportRect.setAttribute("width", Math.min(Graph.width, rect.width / Graph.scale)); viewportRect.setAttribute("height", Math.min(Graph.height, rect.height / Graph.scale)); DOM.minimapSvg.append(viewportRect);
   }
 
@@ -2158,7 +2540,8 @@
     const composerInset = (!DOM.composer.classList.contains("is-collapsed") && window.matchMedia("(min-width: 861px)").matches) ? 138 : 0;
     const usableHeight = Math.max(180, rect.height - composerInset);
     Graph.scale = Math.max(MIN_SCALE, Math.min(1.05, (rect.width - pad * 2) / Graph.width, (usableHeight - pad * 2) / Graph.height));
-    Graph.tx = (rect.width - Graph.width * Graph.scale) / 2; Graph.ty = (usableHeight - Graph.height * Graph.scale) / 2; applyTransform();
+    // 包围盒中心 (minX+width/2, minY+height/2) 对准视口中心；无墙后包围盒可能起于负坐标
+    Graph.tx = rect.width / 2 - (Graph.minX + Graph.width / 2) * Graph.scale; Graph.ty = usableHeight / 2 - (Graph.minY + Graph.height / 2) * Graph.scale; applyTransform();
   }
   function scheduleFit() {
     // 首帧布局可能尚未稳定：双 rAF + 超时兜底重 fit，确保用最终视口尺寸居中
@@ -2218,7 +2601,7 @@
     window.addEventListener("pointercancel", finishNodePointer);
     DOM.minimapSvg.addEventListener("click", (event) => {
       if (State.nodes.length <= 3) return;
-      const rect = DOM.minimapSvg.getBoundingClientRect(); const x = (event.clientX - rect.left) / rect.width * Graph.width; const y = (event.clientY - rect.top) / rect.height * Graph.height; const viewport = DOM.viewport.getBoundingClientRect();
+      const rect = DOM.minimapSvg.getBoundingClientRect(); const x = Graph.minX + (event.clientX - rect.left) / rect.width * Graph.width; const y = Graph.minY + (event.clientY - rect.top) / rect.height * Graph.height; const viewport = DOM.viewport.getBoundingClientRect();
       Graph.tx = viewport.width / 2 - x * Graph.scale; Graph.ty = viewport.height / 2 - y * Graph.scale; applyTransform();
     });
     DOM.fitGraphButton.addEventListener("click", fitGraph); DOM.zoomInButton.addEventListener("click", () => zoomAt(DOM.viewport.getBoundingClientRect().left + DOM.viewport.clientWidth / 2, DOM.viewport.getBoundingClientRect().top + DOM.viewport.clientHeight / 2, 1.16));

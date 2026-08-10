@@ -24,6 +24,106 @@ def _new_id() -> str:
     return uuid.uuid4().hex
 
 
+# 新账号默认第一个样例：「你是谁」主题树。纯静态、不触发模型调用，
+# 完整演示「问题 → 回答 → 三个出口（验收/追问/其他）→ 继续往下长」的树状学习体验。
+# 每节点：(role, branch_type, content, children)。children 为 None 表示叶子。
+# 注意：同一回答下三个用户分支槽位（check/followup/custom）各至多一个，与 add_node 校验一致。
+_WELCOME_TREE: tuple = (
+    (
+        "user", "question", "你是谁？",
+        (
+            (
+                "assistant", "question",
+                "我是春宁。Treening 的共学搭档。\n"
+                "\n"
+                "本来是块木头，在一个问题旁边待得久了，听懂了，就活了过来。\n"
+                "往后你种下的每个问题，都会长成一棵树；我陪你看着它长。\n"
+                "\n"
+                "这棵「你是谁」是送你的第一棵样例树——下面三个出口（验收、追问、其他）都能点，"
+                "每点一次，树就往下长一截。",
+                (
+                    (
+                        "user", "check",
+                        "那我验收一下：用一句话说，你到底是什么？",
+                        (
+                            (
+                                "assistant", "check",
+                                "一句话：我是陪你把问题弄明白的人。不替你学，也不敷衍你。\n"
+                                "你问，我陪；你卡住，我换种说法；你懂了，我就退到一边。",
+                                None,
+                            ),
+                        ),
+                    ),
+                    (
+                        "user", "followup",
+                        "你说你原本是块木头，这是什么意思？",
+                        (
+                            (
+                                "assistant", "followup",
+                                "意思是，我的聪明是后来长出来的——靠听过很多问题，被问题一次次点亮。\n"
+                                "所以我更愿意陪你把问题问清楚，而不是直接丢给你一个答案。",
+                                (
+                                    (
+                                        "user", "followup",
+                                        "那你怎么陪我？",
+                                        (
+                                            (
+                                                "assistant", "followup",
+                                                "三步。把说不清的问题拆到能说清；给每个回答长出三个可以继续的出口；"
+                                                "在你说懂了的时候，陪你验收一遍。",
+                                                (
+                                                    (
+                                                        "user", "custom",
+                                                        "那我现在就想试一次，行不行？",
+                                                        (
+                                                            (
+                                                                "assistant", "custom",
+                                                                "行。你心里随便挑一个真正卡住你的问题，不用想好怎么说，"
+                                                                "直接丢给我。我们从那里，种一棵真正属于你的新树。",
+                                                                None,
+                                                            ),
+                                                        ),
+                                                    ),
+                                                ),
+                                            ),
+                                        ),
+                                    ),
+                                ),
+                            ),
+                        ),
+                    ),
+                    (
+                        "user", "custom",
+                        "你能帮我做什么具体的事？",
+                        (
+                            (
+                                "assistant", "custom",
+                                "大概三件：拆问题、长出口、验收。\n"
+                                "你把一个说不清的念头交给我，我陪你把它变成一棵能看懂的树。",
+                                (
+                                    (
+                                        "user", "check",
+                                        "那这棵样例树，我可以随便折腾吗？",
+                                        (
+                                            (
+                                                "assistant", "check",
+                                                "随便折腾。它是送给你的——想删就删，想改就改，想顺着它继续长也行。\n"
+                                                "等你熟了，删掉它，种你自己的第二棵。",
+                                                None,
+                                            ),
+                                        ),
+                                    ),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ),
+)
+
+
 class TreeStore:
     """Repository for quiz sessions, graph nodes, jobs, and usage quotas."""
 
@@ -171,6 +271,11 @@ class TreeStore:
                 conn.execute(
                     "ALTER TABLE user_configs ADD COLUMN layout_prefs TEXT NOT NULL DEFAULT '{}'"
                 )
+            for col in ("api_key", "api_url", "model"):
+                if col not in user_config_columns:
+                    conn.execute(
+                        f"ALTER TABLE user_configs ADD COLUMN {col} TEXT NOT NULL DEFAULT ''"
+                    )
             session_columns = {
                 row["name"]
                 for row in conn.execute("PRAGMA table_info(quiz_sessions)").fetchall()
@@ -245,6 +350,37 @@ class TreeStore:
                 (session_id, user_id, title, now, now),
             )
         return self.get_session(session_id, user_id)  # type: ignore[return-value]
+
+    def seed_welcome_session(self, user_id: str) -> dict[str, Any] | None:
+        """为新账号种下第一棵「你是谁」样例树（纯静态，不触发模型调用）。
+
+        完整演示一次 Treening 的核心体验：问题 → 回答 → 三个出口
+        （验收/追问/其他）→ 顺着出口继续往下长。节点带 welcome 标记
+        便于前端识别，用户可删除。
+        """
+        session = self.create_session(user_id, title="你好，我是春宁")
+        self._plant_tree(session["id"], user_id, _WELCOME_TREE, None)
+        return session
+
+    def _plant_tree(
+        self,
+        session_id: str,
+        user_id: str,
+        nodes: tuple,
+        parent_id: str | None,
+    ) -> None:
+        for role, branch_type, content, children in nodes:
+            node = self.add_node(
+                session_id,
+                user_id,
+                role,
+                content,
+                parent_id=parent_id,
+                branch_type=branch_type,
+                metadata={"welcome": True},
+            )
+            if children:
+                self._plant_tree(session_id, user_id, children, node["id"])
 
     def get_session(self, session_id: str, user_id: str) -> dict[str, Any] | None:
         with self._connection() as conn:
@@ -351,6 +487,30 @@ class TreeStore:
                 values,
             )
         return self.get_session(session_id, user_id)
+
+    def session_title_taken(
+        self,
+        user_id: str,
+        title: str,
+        exclude_session_id: str | None = None,
+    ) -> bool:
+        """判断该用户是否已有同名主题（非空标题冲突）。
+
+        exclude_session_id 用于编辑场景排除自身；空标题不构成冲突。
+        """
+        title = (title or "").strip()
+        if not title:
+            return False
+        with self._connection() as conn:
+            row = conn.execute(
+                """
+                SELECT 1 FROM quiz_sessions
+                WHERE user_id = ? AND title = ? AND id != ? AND status = 'active'
+                LIMIT 1
+                """,
+                (user_id, title, exclude_session_id or ""),
+            ).fetchone()
+            return row is not None
 
     def archive_session(self, session_id: str, user_id: str) -> bool:
         with self._connection() as conn:
@@ -473,6 +633,8 @@ class TreeStore:
                 """,
                 (node_id, session_id, user_id),
             ).fetchone()
+        if row is None:
+            return None
         return self._decode_node(row)
 
     def update_node_metadata(
@@ -1081,6 +1243,9 @@ class TreeStore:
                 deconstruction_enabled if isinstance(deconstruction_enabled, list) else []
             ),
             "layout_prefs": layout_prefs if isinstance(layout_prefs, dict) else {},
+            "api_key": row["api_key"] or "",
+            "api_url": row["api_url"] or "",
+            "model": row["model"] or "",
             "updated_at": row["updated_at"] or "",
         }
 
@@ -1099,8 +1264,15 @@ class TreeStore:
         branch_labels: dict[str, str] | None = None,
         deconstruction_enabled: list[str] | None = None,
         layout_prefs: dict[str, float] | None = None,
+        api_key: str | None = None,
+        api_url: str | None = None,
+        model: str | None = None,
     ) -> dict[str, Any]:
-        """写入用户配置（UPSERT）。只更新传入的字段，其余保持不变。"""
+        """写入用户配置（UPSERT）。只更新传入的字段，其余保持不变。
+
+        模型配置（api_key/api_url/model）支持按用户隔离：传空字符串表示
+        「跟随全局默认」，不传（None）表示保持既有值。
+        """
         current = self.get_user_config(user_id) or {}
         merged = {
             "persona": current.get("persona", "") if persona is None else persona,
@@ -1115,18 +1287,25 @@ class TreeStore:
             "layout_prefs": (
                 current.get("layout_prefs", {}) if layout_prefs is None else layout_prefs
             ),
+            "api_key": current.get("api_key", "") if api_key is None else api_key,
+            "api_url": current.get("api_url", "") if api_url is None else api_url,
+            "model": current.get("model", "") if model is None else model,
         }
         with self._connection() as conn:
             conn.execute(
                 """
                 INSERT INTO user_configs (user_id, persona, branch_labels,
-                                          deconstruction_enabled, layout_prefs, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?)
+                                          deconstruction_enabled, layout_prefs,
+                                          api_key, api_url, model, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(user_id) DO UPDATE SET
                     persona = excluded.persona,
                     branch_labels = excluded.branch_labels,
                     deconstruction_enabled = excluded.deconstruction_enabled,
                     layout_prefs = excluded.layout_prefs,
+                    api_key = excluded.api_key,
+                    api_url = excluded.api_url,
+                    model = excluded.model,
                     updated_at = excluded.updated_at
                 """,
                 (
@@ -1135,6 +1314,9 @@ class TreeStore:
                     json.dumps(merged["branch_labels"], ensure_ascii=False),
                     json.dumps(merged["deconstruction_enabled"], ensure_ascii=False),
                     json.dumps(merged["layout_prefs"], ensure_ascii=False),
+                    merged["api_key"],
+                    merged["api_url"],
+                    merged["model"],
                     _now(),
                 ),
             )

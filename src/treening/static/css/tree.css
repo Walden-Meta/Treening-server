@@ -177,9 +177,13 @@ html[data-theme="dark"] .theme-toggle-switch .theme-toggle-thumb .theme-toggle-m
 .session-item-content { min-width: 0; }
 .session-item:hover { border-color: var(--quiz-line-strong); background: #fff; color: var(--quiz-text); }
 .session-item.is-active { border-color: rgba(37,99,235,.35); background: rgba(37,99,235,.075); color: var(--quiz-text); }
-.session-item-shell.is-active .session-item { padding-right: 35px; }
+.session-item-shell.is-active .session-item,
+.session-item-shell:hover .session-item { padding-right: 35px; }
 .session-item.is-active .session-item-marker::before { background: var(--quiz-accent); box-shadow: 0 0 0 3px rgba(37,99,235,.18); }
-.session-delete-button { position: absolute; z-index: 2; top: 7px; right: 7px; display: grid; place-items: center; width: 24px; height: 24px; box-sizing: border-box; padding: 0; border: 1px solid var(--quiz-line); border-radius: 8px; background: var(--quiz-surface-muted); color: var(--quiz-faint); font-size: 0; opacity: .82; }
+.session-delete-button { position: absolute; z-index: 2; top: 7px; right: 7px; display: grid; place-items: center; width: 24px; height: 24px; box-sizing: border-box; padding: 0; border: 1px solid var(--quiz-line); border-radius: 8px; background: var(--quiz-surface-muted); color: var(--quiz-faint); font-size: 0; opacity: 0; pointer-events: none; transition: opacity .12s ease, border-color .12s ease, background .12s ease, color .12s ease; }
+.session-item-shell:hover .session-delete-button,
+.session-item-shell.is-active .session-delete-button,
+.session-delete-button:focus-visible { opacity: 1; pointer-events: auto; }
 .session-delete-button > span { position: relative; display: block; width: 12px; height: 12px; transform: none; }
 .session-delete-button > span::before,
 .session-delete-button > span::after { content: ""; position: absolute; left: 50%; top: 50%; width: 13px; height: 1.5px; border-radius: 999px; background: currentColor; transform: translate(-50%, -50%) rotate(45deg); }
@@ -188,6 +192,8 @@ html[data-theme="dark"] .theme-toggle-switch .theme-toggle-thumb .theme-toggle-m
 .session-item.is-draft { border-style: dashed; background: rgba(255,255,255,.3); }
 .session-item.is-draft .session-item-marker::before { background: transparent; border: 1px solid #aeb2ba; }
 .session-item-title { display: block; overflow: hidden; font-size: 11px; font-weight: 500; line-height: 1.45; text-overflow: ellipsis; white-space: nowrap; }
+.session-title-editor { display: block; width: 100%; box-sizing: border-box; padding: 1px 4px; margin: -1px 0; font: inherit; font-size: 11px; font-weight: 500; line-height: 1.45; color: var(--quiz-text); background: #fff; border: 1px solid rgba(37,99,235,.45); border-radius: 7px; outline: none; }
+.session-title-editor.is-conflict { border-color: rgba(225,29,72,.55); background: rgba(225,29,72,.04); }
 .session-item-meta { display: flex; justify-content: space-between; gap: 7px; margin-top: 4px; color: var(--quiz-faint); font-size: 9px; }
 .bulk-visibility-controls { display: flex; gap: 10px; margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--quiz-line); }
 .bulk-visibility-controls .text-button { padding: 0; color: var(--quiz-muted); font-size: 10px; }
@@ -238,13 +244,17 @@ html[data-theme="dark"] .theme-toggle-switch .theme-toggle-thumb .theme-toggle-m
 .graph-viewport:focus-visible { border-color: rgba(37,99,235,.48); box-shadow: 0 0 0 3px rgba(37,99,235,.14); }
 .graph-viewport.is-panning { cursor: grabbing; }
 .graph-world { position: absolute; left: 0; top: 0; width: 1px; height: 1px; transform-origin: 0 0; will-change: transform; user-select: none; -webkit-user-select: none; transition: filter 300ms var(--ease-standard); }
-.graph-edges { position: absolute; left: 0; top: 0; z-index: 1; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
+.graph-edges { position: absolute; left: 0; top: 0; z-index: 3; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
 .graph-edge { fill: none; stroke: #111827; stroke-width: 3.2; stroke-linecap: round; vector-effect: non-scaling-stroke; filter: url(#edge-glow); opacity: .9; }
 .graph-viewport.is-view-transitioning .graph-edge { animation: edge-reveal 300ms var(--ease-standard) both; }
 .graph-edge.question { stroke: #111827; }
 .graph-edge.followup { stroke: var(--quiz-followup); }
 .graph-edge.check { stroke: var(--quiz-check); }
 .graph-edge.custom { stroke: var(--quiz-custom); }
+/* 问答对间距中心的横细线：低调灰 + 弱光，不抢视线；可见线与透明宽命中区叠加，可上下拖拽分配问答高度 */
+.qa-divider-hit { stroke: transparent; stroke-width: 26; pointer-events: auto; cursor: ns-resize; touch-action: none; vector-effect: non-scaling-stroke; }
+html[data-theme="dark"] .qa-divider-hit { stroke: transparent; }
+.graph-edge.qa-divider-line { pointer-events: none; stroke: #9ca3af; stroke-width: 2; opacity: .62; filter: url(#edge-glow-soft); }
 .graph-nodes { position: absolute; left: 0; top: 0; z-index: 2; }
 .graph-node { position: absolute; width: 300px; transform: translate(-50%, -50%); transition: left var(--motion-standard) var(--ease-standard), top var(--motion-standard) var(--ease-standard), width var(--motion-standard) var(--ease-standard), opacity var(--motion-standard) ease, filter var(--motion-standard) ease, transform var(--motion-standard) var(--ease-standard); animation: node-arrive var(--motion-standard) var(--ease-standard) both; z-index: 2; }
 .graph-node.is-view-hidden { opacity: 0; filter: blur(2px); transform: translate(-50%, -50%) scale(.965); pointer-events: none; }
@@ -267,6 +277,9 @@ html[data-theme="dark"] .graph-node.is-marquee-selected.is-nearby .node-card { b
 html[data-theme="dark"] .marquee-select { border-color: rgba(255,255,255,.9); background: rgba(255,255,255,.12); box-shadow: 0 0 0 1px rgba(0,0,0,.25) inset; }
 /* 组拖拽期间所有节点瞬时移动，不做平滑过渡（避免整组拖拽发飘） */
 .study-app.is-group-dragging .graph-node { transition-duration: .01ms; animation-duration: .01ms; }
+/* 分界线拖拽 / 问答对整体缩放期间：高度瞬变而位置带 transition 会导致两卡滞后、
+   可见间距来回伸缩，必须与整组拖动一致关闭位移动画 */
+.study-app.is-divider-dragging .graph-node { transition-duration: .01ms; animation-duration: .01ms; }
 .graph-node.is-path { opacity: 1; }
 .graph-node.is-nearby { opacity: .74; }
 .graph-node.is-nearby .node-card { border-style: dashed; box-shadow: 0 12px 30px rgba(17,24,39,.10); }
@@ -387,6 +400,8 @@ html[data-theme="dark"] .graph-node.is-current .node-card { border-color: rgba(2
 .mini-edge.followup { stroke: var(--quiz-followup); }
 .mini-edge.check { stroke: var(--quiz-check); }
 .mini-edge.custom { stroke: var(--quiz-custom); }
+/* 缩略图里问答对横短线：低调灰、无光，不抢视线 */
+.mini-edge.qa-divider { stroke: #9ca3af; stroke-width: 1.6; opacity: .55; filter: none; }
 .mini-node { fill: rgba(17,24,39,.55); }
 .mini-node.user { fill: rgba(17,24,39,.85); }
 .mini-node.check { fill: var(--quiz-check); }
@@ -443,6 +458,7 @@ html[data-theme="dark"] .graph-node.is-current .node-card { border-color: rgba(2
 .session-list { min-width: 0; max-height: none; flex: 1; overflow-x: hidden; }
 .session-item { min-width: 0; padding: 10px; }
 .session-item-title { display: -webkit-box; font-size: 13px; line-height: 1.4; white-space: normal; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.session-title-editor { font-size: 13px; line-height: 1.4; }
 .session-item-meta { font-size: 11px; }
 .history-empty { font-size: 12px; }
 .bulk-visibility-controls { margin-top: 12px; padding-top: 12px; }
@@ -637,6 +653,8 @@ html[data-theme="dark"] .graph-edge.question { stroke: #d9e1ea; }
 html[data-theme="dark"] .graph-edge.followup { stroke: var(--quiz-followup); }
 html[data-theme="dark"] .graph-edge.check { stroke: var(--quiz-check); }
 html[data-theme="dark"] .graph-edge.custom { stroke: var(--quiz-custom); }
+/* 问答对分界线在暗色下也用低调灰，不随主题黑白走 */
+html[data-theme="dark"] .graph-edge.qa-divider-line { stroke: #8b949e; opacity: .55; }
 html[data-theme="dark"] .node-card { background: rgba(18,23,30,.98); }
 html[data-theme="dark"] .graph-node.user .node-card { border-color: rgba(226,232,240,.16); background: var(--quiz-user); }
 html[data-theme="dark"] .graph-node.is-background .node-card { border-color: rgba(226,232,240,.09); }
@@ -660,6 +678,7 @@ html[data-theme="dark"] .mini-edge { stroke: #d9e1ea; }
 html[data-theme="dark"] .mini-edge.followup { stroke: var(--quiz-followup); }
 html[data-theme="dark"] .mini-edge.check { stroke: var(--quiz-check); }
 html[data-theme="dark"] .mini-edge.custom { stroke: var(--quiz-custom); }
+html[data-theme="dark"] .mini-edge.qa-divider { stroke: #8b949e; opacity: .5; }
 html[data-theme="dark"] .mini-node { fill: rgba(226,232,240,.62); }
 html[data-theme="dark"] .mini-node.user { fill: rgba(226,232,240,.9); }
 html[data-theme="dark"] .composer { background: rgba(18,23,30,.94); box-shadow: 0 26px 66px rgba(0,0,0,.46); }
@@ -1316,6 +1335,12 @@ body.is-detail-focus .bulk-visibility-controls { display: none; }
 .detail-cell-questions { grid-area: questions; width: 100%; min-width: 0; }
 /* 源卡格：顶部居中，水平拉长（宽度由 JS 内联设置） */
 .detail-cell-node { grid-area: source; width: auto; height: auto; justify-self: center; align-self: start; overflow: visible; border: 0; background: transparent; box-shadow: none; backdrop-filter: none; }
+/* 详情工作台问答对：发问卡在上、回答卡在下，中间一根发光横线作分隔 */
+.detail-source-stack { display: flex; flex-direction: column; align-items: center; gap: 14px; }
+.detail-source-divider { flex: 0 0 auto; width: 75%; height: 2px; border-radius: 999px; background: #9ca3af; box-shadow: 0 0 5px rgba(17,24,39,.18); }
+html[data-theme="dark"] .detail-source-divider { background: #8b949e; box-shadow: 0 0 5px rgba(17,24,39,.2); }
+/* 发问卡在详情工作台内高度固定为回答卡（200px）的 0.6 倍 */
+.detail-stage .graph-node.is-detail-clone.source-question .node-card { height: 120px; }
 
 /* 工作台内的模块卡：随内容自适应，不再强制填满 */
 .detail-cell .detail-card {
@@ -1392,6 +1417,8 @@ body.is-detail-focus .bulk-visibility-controls { display: none; }
 /* 详情工作台脱离画布自由度：禁拖拽手柄与抽屉切换按钮 */
 .detail-stage .graph-node.is-in-workspace .node-resize-handle,
 .detail-stage .graph-node.is-in-workspace .node-action-drawer { display: none !important; }
+/* 详情工作台上方配对的发问卡只作对照展示：不提供删除入口 */
+.detail-stage .graph-node.is-in-workspace.source-question .node-action-delete { display: none !important; }
 
 /* 详情期间提问栏让位阅读栏：改为 fixed，居中基准 = 整屏左侧区域（与田字一致） */
 @media (min-width: 1360px) {

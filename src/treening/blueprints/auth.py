@@ -69,6 +69,8 @@ def register():
     )
     if not user:
         return jsonify({"ok": False, "error": "用户名已存在"}), 409
+    # 新账号默认第一个样例：「你是谁」主题，让春宁当场自介并演示三出口
+    _store().seed_welcome_session(user["id"])
     auth.record_registration(ip)
     if is_first:
         # 把单用户时代的 local-owner 数据并入首个管理员

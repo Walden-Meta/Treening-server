@@ -17,10 +17,21 @@ dependencies = [
 
 [project.optional-dependencies]
 docx = ["python-docx>=1.0"]
-dev = ["pytest>=7.0"]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+]
 
 [project.scripts]
 treening = "treening.cli:cli"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-ra"
+filterwarnings = ["ignore::DeprecationWarning"]
 
 [tool.setuptools]
 package-dir = {"" = "src"}

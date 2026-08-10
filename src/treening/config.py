@@ -29,12 +29,12 @@ _settings = _load_settings()
 
 # 画布布局偏好（每用户全局生效，作用于所有主题）。
 # 默认值须与前端 buildLayout / NODE_DEFAULT_* 保持一致：
-#   qa_gap      一组问答之间的线长（问题→回答，可见约 qa_gap-20 px）
+#   qa_gap      问答对内部间距（发问卡↔回答卡的缝隙，横细线居中，可拖拽分配高度）
 #   branch_gap  不同问答之间衔接的线长（回答→分支问题）
-#   node_width  卡片默认宽
-#   node_height 卡片默认高
+#   node_width  卡片默认宽（问答对共享宽度）
+#   node_height 卡片默认高（问答对按各自高度排布，缩放保持比例）
 LAYOUT_PREFS_DEFAULTS: dict[str, float] = {
-    "qa_gap": 44,
+    "qa_gap": 24,
     "branch_gap": 82,
     "node_width": 300,
     "node_height": 180,
@@ -81,6 +81,9 @@ class Config:
         self.HOST: str = _env("HOST", "127.0.0.1")
         self.PORT: int = int(_env("PORT", "5000"))
 
+        # 日志（请求日志在 app.py 按此级别输出，默认 INFO）
+        self.LOG_LEVEL: str = _env("LOG_LEVEL", "INFO")
+
         # 数据
         self.DATABASE_URL: str = _env(
             "DATABASE_URL", f"sqlite:///{BASE_DIR / 'data' / 'tree.db'}"
@@ -94,8 +97,14 @@ class Config:
         self.PERSONA: str = _env("PERSONA", "")
         # 人设文件（配置页编辑的主存储；TREENING_PERSONA 可临时覆盖）
         self.PERSONA_FILE: Path = Path(_env("PERSONA_FILE", str(BASE_DIR / "data" / "persona.md")))
+        # 随包默认人设（春宁）：data/persona.md 为空或缺失时兜底，保证"底座人设"永远存在
+        self.DEFAULT_PERSONA_FILE: Path = Path(__file__).resolve().parent / "default_persona.md"
         self.PERSONA_MAX_CHARS: int = int(_env("PERSONA_MAX_CHARS", "4000"))
         self.PROVIDER_TIMEOUT_SECONDS: int = int(_env("PROVIDER_TIMEOUT_SECONDS", "45"))
+        # 推理模型的思考预算（Anthropic Messages 兼容接口）。为 0 时不发送 thinking 参数。
+        # deepseek-v4 等推理模型默认思考极长，会把输出预算（max_tokens）吃光，
+        # 导致正文/摘要/拆解字段缺失或直接无文本返回，故默认给一个上限。
+        self.THINKING_BUDGET_TOKENS: int = int(_env("THINKING_BUDGET_TOKENS", "512"))
         self.MAX_QUESTION_CHARS: int = int(_env("MAX_QUESTION_CHARS", "2000"))
         self.MAX_CONTEXT_MESSAGES: int = int(_env("MAX_CONTEXT_MESSAGES", "12"))
         self.MAX_INFLIGHT: int = int(_env("MAX_INFLIGHT", "2"))
@@ -138,9 +147,10 @@ class Config:
     def persona(self) -> str:
         """返回当前生效的人设内容。
 
-        优先级：PERSONA_FILE（配置页编辑的主存储，动态读取、保存即生效）
-        > TREENING_PERSONA / settings.persona（临时覆盖）。
-        返回空字符串表示不注入，使用通用 system.md。
+        春宁是底座人设，永远兜底：PERSONA_FILE（配置页编辑，动态读取）
+        > TREENING_PERSONA / settings.persona（临时覆盖）
+        > 随包默认人设 default_persona.md（春宁）。
+        因此不会出现"没有通用风格"的空人设：用户未配置时就是春宁。
         """
         try:
             text = self.PERSONA_FILE.read_text(encoding="utf-8").strip()
@@ -148,7 +158,12 @@ class Config:
                 return text
         except OSError:
             pass
-        return self.PERSONA
+        if self.PERSONA:
+            return self.PERSONA
+        try:
+            return self.DEFAULT_PERSONA_FILE.read_text(encoding="utf-8").strip()
+        except OSError:
+            return ""
 
     def _default_branch_labels(self) -> dict[str, str]:
         """默认节点命名，来自 methodology/rules.yaml（唯一事实来源）。"""

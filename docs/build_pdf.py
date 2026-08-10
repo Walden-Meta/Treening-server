@@ -101,7 +101,7 @@ def main() -> None:
         1,
     )
     cover_html += (
-        '<p class="cover-foot">版本 v0.2.0 ｜ 更新于 2026-08-07 ｜ '
+        '<p class="cover-foot">版本 v0.3.0 ｜ 更新于 2026-08-10 ｜ '
         "https://treening.cc</p>"
     )
 

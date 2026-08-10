@@ -46,7 +46,8 @@
   </div>
 
   <p id="setup-nonadmin-note" hidden class="nonadmin-note">
-    模型由管理员统一配置，这里只管理你自己的个性化设置（人设、命名、拆解、布局）。
+    管理员配置了全局模型作为默认。你可以在下方「我的模型服务」中使用自己的 API Key / 地址 / 模型，
+    也可以管理自己的个性化设置（人设、命名、拆解、布局）。
   </p>
 
   <section class="admin-card" id="setup-register" hidden>
@@ -83,9 +84,30 @@
     </form>
   </section>
 
+  <section class="admin-card" id="setup-user-model">
+    <h2>我的模型服务</h2>
+    <p class="hint">使用你自己的 API Key（BYO-Key），支持任何 OpenAI 兼容接口，只保存在本机。<br>
+      全部留空 = 跟随全局默认（管理员配置）。自定义接口地址或模型时，必须同时提供你自己的 API Key。</p>
+    <form id="setup-user-model-form">
+      <label for="setup-user-api-key">API Key</label>
+      <input id="setup-user-api-key" type="password" placeholder="sk-...（留空 = 跟随全局）" autocomplete="off">
+      <p id="setup-user-key-hint" hidden class="key-hint"></p>
+      <label for="setup-user-api-url">接口地址</label>
+      <input id="setup-user-api-url" type="text" placeholder="https://api.deepseek.com/chat/completions">
+      <label for="setup-user-model">模型</label>
+      <input id="setup-user-model" type="text" placeholder="deepseek-chat">
+      <p class="form-error" id="setup-user-model-error" role="alert"></p>
+      <div class="btn-row">
+        <button class="button" id="setup-user-model-test" type="button">测试连接</button>
+        <button class="button button-primary" id="setup-user-model-save" type="button">保存</button>
+        <button class="mini-btn danger" id="setup-user-model-reset" type="button">清除自定义，恢复全局默认</button>
+      </div>
+    </form>
+  </section>
+
   <section class="admin-card persona-editor">
     <h2>自定义人设（全局）</h2>
-    <p class="hint">全局人设，作用于所有对话，<b>不按主题区分</b>。留空 = 使用 Treening 默认教学风格。<br>
+    <p class="hint">人设作用于所有对话，<b>不按主题区分</b>。春宁是底座人设：留空 = 使用默认「春宁」；填入文字 = 用它覆盖默认；想恢复默认就清空保存。这里只作覆盖/重置，不参与初始设置。<br>
       想要不同主题/节点的分化，可以写「无条件跟随对话内的指令」这类规则，由模型按你的指示分化。保存后立即生效，无需重启。</p>
     <textarea id="setup-persona" rows="7"
       placeholder="例如：你是一名有二十年嵌入式开发经验的老工程师，说话直接，先给结论再讲理由。"></textarea>
@@ -120,14 +142,14 @@
 
   <section class="admin-card persona-editor">
     <h2>画布布局（全局）</h2>
-    <p class="hint">作用于所有主题的知识树排版，单位 px，保存后刷新学习空间即可看到新的布局。<b>注意：修改任一数值会重置所有节点的手动摆放位置</b>，整棵树按新参数重新排版。默认：线长 44 / 82，卡片 300 × 180。</p>
+    <p class="hint">作用于所有主题的知识树排版，单位 px，保存后刷新学习空间即可看到新的布局。<b>注意：修改任一数值会重置所有节点的手动摆放位置</b>，整棵树按新参数重新排版。默认：问答间距 24 / 分支衔接 82，卡片 300 × 180。</p>
     <div class="grid-2">
       <div>
-        <label for="layout-qa-gap">一组问答之间的线长</label>
+        <label for="layout-qa-gap">问答对内部间距</label>
         <input id="layout-qa-gap" type="number" min="16" max="200" step="1" inputmode="numeric">
       </div>
       <div>
-        <label for="layout-branch-gap">不同问答之间衔接的线长</label>
+        <label for="layout-branch-gap">问答之间衔接的间距</label>
         <input id="layout-branch-gap" type="number" min="40" max="300" step="1" inputmode="numeric">
       </div>
       <div>
@@ -189,6 +211,6 @@
     </div>
   </section>
 </main>
-<script src="/static/js/setup.js?v=20260807-2" defer></script>
+<script src="/static/js/setup.js?v=20260810-1" defer></script>
 </body>
 </html>
