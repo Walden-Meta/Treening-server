@@ -12,7 +12,7 @@ COPY src ./src
 RUN apt-get update \
     && apt-get install -y --no-install-recommends curl \
     && rm -rf /var/lib/apt/lists/* \
-    && pip install --upgrade pip \
+    && pip install --upgrade pip setuptools \
     && pip install --no-cache-dir gunicorn \
     # 可编辑安装：包留在 /app/src，BASE_DIR 正确解析为 /app
     # （非可编辑安装会把包装进 site-packages，导致 BASE_DIR 错算、库写进容器内层）
