@@ -104,3 +104,5 @@ cp ops/restore.sh /root/treening-restore.sh
 - `/api/health` 带 SQLite 只读探测（DB 坏时 503，Docker healthcheck 转红）
 - Sentry 可选错误聚合（`TREENING_SENTRY_DSN`，镜像内需装 `sentry-sdk`）
 - 日志轮转：json-file 驱动，单文件 20MB / 最多 5 个
+- nginx 限流（`ops/nginx-fail2ban/ratelimit.conf`）：`/api/auth/` 10r/m + burst 10（登录防爆破粗筛），`/api/` 240r/m + burst 60（挡扫描器循环，不误伤学习轮询）
+- fail2ban（`ops/nginx-fail2ban/`）：`treening-scan` 扫描特征 300s 内 3 次封 24h；`treening-http-429` 60s 内 10 个 429 封 1h

@@ -1,0 +1,25 @@
+[DEFAULT]
+bantime = 3600
+findtime = 300
+maxretry = 5
+ignoreip = 127.0.0.1/8 ::1 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16
+
+# 扫描器特征：300s 内 3 次命中即封 24h
+[treening-scan]
+enabled = true
+port = http,https
+filter = treening-scan
+logpath = /var/log/nginx/access.log
+maxretry = 3
+findtime = 300
+bantime = 86400
+
+# 应用层 429（登录防爆破 / 限流命中）：60s 内 10 次封 1h
+[treening-http-429]
+enabled = true
+port = http,https
+filter = treening-http
+logpath = /var/log/nginx/access.log
+maxretry = 10
+findtime = 60
+bantime = 3600
