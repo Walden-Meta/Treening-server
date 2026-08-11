@@ -79,8 +79,9 @@ def health():
     try:
         current_app.extensions["tree_store"].health_check()
     except Exception:
-        app_logger = current_app.logger
-        app_logger.exception("health check failed: database probe error")
+        # 容器启动期 DB 短暂不可读是预期事件：用 WARNING 而不带堆栈，
+        # 避免给 Sentry 刷健康探测噪声（503 已由 docker healthcheck 消费）。
+        current_app.logger.warning("health check failed: database probe error")
         return {"ok": False, "service": "treening", "database": "error"}, 503
     return {"ok": True, "service": "treening", "database": "ok"}
 

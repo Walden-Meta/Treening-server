@@ -55,6 +55,35 @@ def _iso_to_ts(value: str | None) -> float | None:
     return ts.timestamp()
 
 
+def _sentry_before_send(event: dict, hint: dict) -> dict | None:
+    """丢弃已知噪声事件，避免污染 Sentry Issues：
+
+    - 健康探测异常（容器启动期 DB 短暂不可读是预期事件）；
+    - 滚动部署/优雅停机时连接被杀的在途请求（ConnectionReset/BrokenPipe 等）。
+    返回 None = 不发送；返回 event = 正常发送。
+    """
+    try:
+        # 事件级别：只对 error/exception 做过滤，info/debug 不碰
+        level = event.get("level")
+        if level not in ("error", "fatal"):
+            return event
+        # 健康探测：logger.warning 不再带堆栈，这里兜底旧事件与其它路径
+        logentry = event.get("logentry") or {}
+        message = str(logentry.get("message") or logentry.get("formatted") or "")
+        if "health check failed" in message or "/api/health" in message:
+            return None
+        # 连接被杀（容器重建/停机窗口）：非应用逻辑错误
+        exc_info = hint.get("exc_info")
+        if exc_info:
+            exc_type = exc_info[0].__name__ if exc_info[0] else ""
+            if exc_type in ("ConnectionResetError", "BrokenPipeError", "ClientDisconnected", "ConnectionAbortedError"):
+                return None
+    except Exception:
+        # 过滤逻辑自身异常不阻塞上报
+        return event
+    return event
+
+
 def _init_sentry() -> None:
     """配置 Sentry 错误聚合。无 DSN 或依赖未安装时静默跳过，不阻塞启动。"""
     if not config.SENTRY_DSN:
@@ -69,6 +98,7 @@ def _init_sentry() -> None:
         environment=config.ENV,
         traces_sample_rate=config.SENTRY_TRACES_SAMPLE_RATE,
         send_default_pii=False,
+        before_send=_sentry_before_send,
     )
     logger.info("Sentry error aggregation enabled (env=%s)", config.ENV)
 
