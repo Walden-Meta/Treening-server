@@ -220,7 +220,8 @@ class TreeStore:
                     last_login_ip TEXT,
                     last_seen_at TEXT,
                     last_seen_ip TEXT,
-                    quota_limit INTEGER
+                    quota_limit INTEGER,
+                    password_changed_at TEXT
                 );
 
                 CREATE TABLE IF NOT EXISTS password_resets (
@@ -260,7 +261,7 @@ class TreeStore:
             }
             if "quota_limit" not in user_columns:
                 conn.execute("ALTER TABLE users ADD COLUMN quota_limit INTEGER")
-            for col in ("last_login_ip", "last_seen_at", "last_seen_ip", "email"):
+            for col in ("last_login_ip", "last_seen_at", "last_seen_ip", "email", "password_changed_at"):
                 if col not in user_columns:
                     conn.execute(f"ALTER TABLE users ADD COLUMN {col} TEXT")
             user_config_columns = {
@@ -1078,18 +1079,29 @@ class TreeStore:
             row = conn.execute("SELECT COUNT(*) AS n FROM users").fetchone()
             return int(row["n"]) if row and row["n"] else 0
 
+    def health_check(self) -> None:
+        """健康探测：读一次库并解析结果，失败即抛错（调用方转为 503）。"""
+        with self._connection() as conn:
+            row = conn.execute("SELECT COUNT(*) AS n FROM users").fetchone()
+        if row is None:
+            raise RuntimeError("users 表不可读")
+
     def create_user(
         self, username: str, password_hash: str, role: str = "user", email: str = ""
     ) -> dict[str, Any] | None:
         user_id = _new_id()
+        now = _now()
         try:
             with self._connection() as conn:
                 conn.execute(
                     """
-                    INSERT INTO users(id, username, password_hash, role, is_active, email, created_at)
-                    VALUES (?, ?, ?, ?, 1, ?, ?)
+                    INSERT INTO users(
+                        id, username, password_hash, role, is_active, email,
+                        created_at, password_changed_at
+                    )
+                    VALUES (?, ?, ?, ?, 1, ?, ?, ?)
                     """,
-                    (user_id, username, password_hash, role, email or None, _now()),
+                    (user_id, username, password_hash, role, email or None, now, now),
                 )
         except sqlite3.IntegrityError:
             return None  # 用户名已存在
@@ -1117,10 +1129,11 @@ class TreeStore:
         return [dict(r) for r in rows]
 
     def set_user_password(self, user_id: str, password_hash: str) -> None:
+        """改密同时刷新 password_changed_at，使旧会话全部失效。"""
         with self._connection() as conn:
             conn.execute(
-                "UPDATE users SET password_hash = ? WHERE id = ?",
-                (password_hash, user_id),
+                "UPDATE users SET password_hash = ?, password_changed_at = ? WHERE id = ?",
+                (password_hash, _now(), user_id),
             )
 
     def set_user_email(self, user_id: str, email: str) -> None:

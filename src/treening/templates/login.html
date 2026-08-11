@@ -58,6 +58,10 @@
         <input id="reg-password" type="password" minlength="8" maxlength="64" autocomplete="new-password" required>
         <label for="reg-password2">确认密码</label>
         <input id="reg-password2" type="password" autocomplete="new-password" required>
+        <div id="invite-code-field" hidden>
+          <label for="reg-invite-code">邀请码</label>
+          <input id="reg-invite-code" type="text" maxlength="40" autocomplete="off" placeholder="请输入邀请码">
+        </div>
         <label for="reg-email">邮箱（选填，用于忘记密码找回）</label>
         <input id="reg-email" type="email" maxlength="254" autocomplete="email" placeholder="name@example.com">
         <p class="form-error" id="register-error" role="alert"></p>

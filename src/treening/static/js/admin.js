@@ -4,8 +4,13 @@
 
   const usersError = $("#users-error");
   const settingsError = $("#settings-error");
-  const regToggle = $("#open-reg-toggle");
+  const regModeSelect = $("#reg-mode-select");
   const regState = $("#open-reg-state");
+  const regModeSave = $("#reg-mode-save");
+  const inviteCodesBlock = $("#invite-codes-block");
+  const inviteCodeList = $("#invite-code-list");
+  const newInviteCode = $("#new-invite-code");
+  const addInviteCode = $("#add-invite-code");
 
   function showError(el, msg) { if (el) el.textContent = msg || ""; }
 
@@ -152,24 +157,85 @@
     });
   }
 
+  function renderInviteCodes(codes) {
+    inviteCodeList.textContent = "";
+    if (!codes.length) {
+      const empty = document.createElement("span");
+      empty.textContent = "暂无邀请码，添加后即可发放给访客。";
+      inviteCodeList.append(empty);
+      return;
+    }
+    for (const code of codes) {
+      const row = document.createElement("div");
+      row.style.cssText = "display:flex;align-items:center;justify-content:space-between;padding:3px 0;border-bottom:1px solid var(--quiz-border,#eee)";
+      const label = document.createElement("code");
+      label.textContent = code;
+      const remove = document.createElement("button");
+      remove.className = "mini-btn danger";
+      remove.textContent = "删除";
+      remove.dataset.code = code;
+      remove.addEventListener("click", async () => {
+        remove.disabled = true;
+        showError(settingsError, "");
+        try {
+          const d = await api("/registration", "POST", { mode: regModeSelect.value, remove_codes: [code] });
+          renderInviteCodes(d.codes);
+        } catch (err) {
+          showError(settingsError, err.message);
+          remove.disabled = false;
+        }
+      });
+      row.append(label, remove);
+      inviteCodeList.append(row);
+    }
+  }
+
+  async function loadRegistration() {
+    const d = await api("/registration");
+    regModeSelect.value = d.mode;
+    regState.textContent = { open: "开放注册", invite: `邀请码注册（剩余 ${d.codes.length} 个）`, closed: "注册已关闭，仅管理员可添加" }[d.mode] || "";
+    inviteCodesBlock.hidden = d.mode !== "invite";
+    renderInviteCodes(d.codes);
+  }
+
   async function loadSettings() {
     const d = await api("/settings");
-    regToggle.checked = d.open_registration;
-    regState.textContent = d.open_registration ? "已开启，登录页显示注册入口" : "已关闭，仅管理员可添加用户";
+    regModeSelect.value = d.registration_mode || (d.open_registration ? "open" : "closed");
+    regState.textContent = { open: "开放注册", invite: "邀请码注册", closed: "注册已关闭" }[regModeSelect.value] || "";
+    inviteCodesBlock.hidden = regModeSelect.value !== "invite";
   }
 
   function bindSettings() {
-    regToggle.addEventListener("change", async () => {
-      regToggle.disabled = true;
+    regModeSave.addEventListener("click", async () => {
+      regModeSave.disabled = true;
       showError(settingsError, "");
       try {
-        await api("/settings", "POST", { open_registration: regToggle.checked });
-        await loadSettings();
+        const d = await api("/registration", "POST", { mode: regModeSelect.value });
+        regState.textContent = { open: "开放注册", invite: `邀请码注册（剩余 ${d.codes.length} 个）`, closed: "注册已关闭，仅管理员可添加" }[d.mode] || "";
+        inviteCodesBlock.hidden = d.mode !== "invite";
+        renderInviteCodes(d.codes);
       } catch (err) {
         showError(settingsError, err.message);
-        regToggle.checked = !regToggle.checked;
       } finally {
-        regToggle.disabled = false;
+        regModeSave.disabled = false;
+      }
+    });
+
+    addInviteCode.addEventListener("click", async () => {
+      const raw = newInviteCode.value.trim();
+      if (!raw) { showError(settingsError, "请先填写邀请码"); return; }
+      const codes = raw.split(/[\s,，]+/).filter(Boolean);
+      addInviteCode.disabled = true;
+      showError(settingsError, "");
+      try {
+        const d = await api("/registration", "POST", { mode: "invite", add_codes: codes });
+        newInviteCode.value = "";
+        renderInviteCodes(d.codes);
+        regState.textContent = `邀请码注册（剩余 ${d.codes.length} 个）`;
+      } catch (err) {
+        showError(settingsError, err.message);
+      } finally {
+        addInviteCode.disabled = false;
       }
     });
   }
@@ -272,6 +338,7 @@
       if (me.user.role !== "admin") { location.href = "/"; return; }
       window.__selfId = me.user.id;
       await loadSettings();
+      await loadRegistration();
       await renderUsers();
       bindSettings();
       bindCreate();

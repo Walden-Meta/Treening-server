@@ -6,14 +6,23 @@
   const registerError = document.getElementById("register-error");
 
   // 登录页是否显示注册入口/忘记密码：首启建管理员 或 开放注册开启
+  // registration_mode: open（自由注册）/ invite（需邀请码）/ closed（关闭）
   fetch("/api/auth/status").then((r) => r.json()).then((d) => {
+    const mode = d.registration_mode || (d.open_registration ? "open" : "closed");
     const hint = document.getElementById("register-hint");
     const closed = document.getElementById("register-closed");
-    if (d.has_users && !d.open_registration) {
+    const inviteField = document.getElementById("invite-code-field");
+    if (d.has_users && mode === "closed") {
       if (hint) hint.hidden = true;
       if (closed) closed.hidden = false;
     } else if (hint) {
       hint.hidden = false;
+      // invite 模式：注册表单显示邀请码输入框，并作为必填
+      if (mode === "invite" && inviteField) {
+        inviteField.hidden = false;
+        const inviteInput = document.getElementById("reg-invite-code");
+        if (inviteInput) inviteInput.setAttribute("required", "");
+      }
     }
     // 有用户存在时，登录框显示「忘记密码」入口
     const forgotLink = document.getElementById("forgot-link");
@@ -79,10 +88,11 @@
     const btn = e.currentTarget.querySelector("button[type=submit]");
     btn.disabled = true; btn.textContent = "注册中…";
     try {
-      const res = await fetch("/api/auth/register", {
+      const inviteCode = document.getElementById("reg-invite-code")?.value.trim() || "";
+    const res = await fetch("/api/auth/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username: u, password: p1, email: regEmail }),
+        body: JSON.stringify({ username: u, password: p1, email: regEmail, invite_code: inviteCode }),
       });
       const d = await res.json();
       if (!res.ok || !d.ok) { registerError.textContent = d.error || "注册失败"; return; }

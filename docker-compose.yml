@@ -14,6 +14,16 @@ services:
       # 配额：默认启用、普通用户每日 20 次（管理员不限；可在管理面板按人覆盖）
       TREENING_QUOTA_ENABLED: ${TREENING_QUOTA_ENABLED:-true}
       TREENING_MAX_QUESTIONS: ${TREENING_MAX_QUESTIONS:-20}
+      # 注册策略：open / invite / closed（settings.json 可运行时改，此环境变量仅兜底）
+      TREENING_REGISTRATION_MODE: ${TREENING_REGISTRATION_MODE:-}
+      # 错误聚合：填 Sentry DSN 后自动启用（需镜像内安装 sentry-sdk）
+      TREENING_SENTRY_DSN: ${TREENING_SENTRY_DSN:-}
+    # 日志轮转：json-file 驱动，单文件 20MB、最多 5 个，防止容器日志无限膨胀
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
     volumes:
       - ./docker-data/textree:/app/data
     healthcheck:

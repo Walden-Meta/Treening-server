@@ -6,9 +6,11 @@ import logging
 import secrets
 import time
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 
 from flask import Flask, jsonify, redirect, request, session, url_for
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 from .config import BASE_DIR, config
 from .services.methodology import Methodology
@@ -38,6 +40,37 @@ def _configure_logging(app: Flask) -> None:
         handler.setFormatter(logging.Formatter(_REQUEST_LOG_FORMAT))
         root.addHandler(handler)
     app.logger.setLevel(level)
+
+
+def _iso_to_ts(value: str | None) -> float | None:
+    """把库里的 ISO 时间戳转成 epoch 秒；解析失败返回 None。"""
+    if not value:
+        return None
+    try:
+        ts = datetime.fromisoformat(value)
+    except (TypeError, ValueError):
+        return None
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=timezone.utc)
+    return ts.timestamp()
+
+
+def _init_sentry() -> None:
+    """配置 Sentry 错误聚合。无 DSN 或依赖未安装时静默跳过，不阻塞启动。"""
+    if not config.SENTRY_DSN:
+        return
+    try:
+        import sentry_sdk
+    except ImportError:
+        logger.warning("TREENING_SENTRY_DSN 已设置但未安装 sentry-sdk，错误聚合未启用")
+        return
+    sentry_sdk.init(
+        dsn=config.SENTRY_DSN,
+        environment=config.ENV,
+        traces_sample_rate=0.05,
+        send_default_pii=False,
+    )
+    logger.info("Sentry error aggregation enabled (env=%s)", config.ENV)
 
 
 def _persistent_secret() -> str:
@@ -127,9 +160,17 @@ def create_app() -> Flask:
     )
     app.config["SECRET_KEY"] = _persistent_secret()
     app.config["TREENING"] = config
-    # P1 加固：会话 Cookie 标记 HttpOnly + SameSite=Lax（防 XSS 窃取、CSRF）
+    # 会话 Cookie：HttpOnly + SameSite=Lax（防 XSS 窃取、CSRF）；HTTPS 下再开 Secure
     app.config["SESSION_COOKIE_HTTPONLY"] = True
     app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+    app.config["SESSION_COOKIE_SECURE"] = config.COOKIE_SECURE
+
+    # 可信反向代理（nginx）之后：读取真实客户端 IP / 协议 / Host。
+    # 只信任第一跳（x_for=1），杜绝客户端伪造 X-Forwarded-For 绕过配额/限流。
+    if config.BEHIND_PROXY:
+        app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
+
+    _init_sentry()
 
     store = TreeStore(config.DATABASE_URL)
     app.extensions["tree_store"] = store
@@ -176,6 +217,34 @@ def create_app() -> Flask:
             )
         return resp
 
+    _MUTATING_METHODS = {"POST", "PATCH", "PUT", "DELETE"}
+    _ALLOWED_ORIGIN_OVERRIDES = {
+        origin.strip() for origin in config.ALLOWED_ORIGINS.split(",") if origin.strip()
+    }
+
+    @app.before_request
+    def _origin_guard():
+        """CSRF 加固：对写操作校验 Origin，拒绝跨站请求。
+
+        浏览器跨站写请求必然携带 Origin，同源请求的 Origin 等于本机 scheme://host；
+        无 Origin 的请求（curl/服务端调用）放行。比 SameSite=Lax 再兜一层。
+        """
+        if request.method not in _MUTATING_METHODS:
+            return None
+        origin = request.headers.get("Origin")
+        if not origin:
+            return None
+        allowed = set(_ALLOWED_ORIGIN_OVERRIDES)
+        if request.host:
+            allowed.add(f"{request.scheme}://{request.host}")
+        if origin not in allowed:
+            return jsonify({
+                "ok": False,
+                "error": "跨站请求被拒绝",
+                "code": "origin_forbidden",
+            }), 403
+        return None
+
     @app.before_request
     def _guard():
         """访问守卫：首启引导（无用户建号）→ 登录墙 → 管理员配置页限制。"""
@@ -194,12 +263,25 @@ def create_app() -> Flask:
             if path.startswith("/api/"):
                 return jsonify({"ok": False, "error": "未登录", "code": "auth_required"}), 401
             return redirect(url_for("views.login_page"))
-        # 账号可能已被删除/禁用：会话失效
-        if not store.get_user_by_id(session["user_id"]):
+        # 账号可能已被删除/禁用：会话失效（含 is_active，禁用按钮才能真正踢下线）
+        user = store.get_user_by_id(session["user_id"])
+        if not user or not user["is_active"]:
             session.clear()
             if path.startswith("/api/"):
-                return jsonify({"ok": False, "error": "账号已失效，请重新登录", "code": "auth_required"}), 401
+                return jsonify({"ok": False, "error": "账号已失效或已被禁用，请重新登录", "code": "auth_required"}), 401
             return redirect(url_for("views.login_page"))
+        # 改密/重置密码后，旧会话全部失效：登录时刻早于 password_changed_at 则踢出
+        password_changed_at = user.get("password_changed_at")
+        if password_changed_at:
+            changed_ts = _iso_to_ts(password_changed_at)
+            login_at = session.get("login_at")
+            if changed_ts is not None and (
+                not isinstance(login_at, (int, float)) or login_at < changed_ts
+            ):
+                session.clear()
+                if path.startswith("/api/"):
+                    return jsonify({"ok": False, "error": "密码已更新，请重新登录", "code": "auth_required"}), 401
+                return redirect(url_for("views.login_page"))
         # 记录在线活跃（节流，60 秒/人至多写一次）
         _touch_activity(store, session["user_id"], request.remote_addr or "")
         # /admin 仅管理员可见；普通用户访问返回 403

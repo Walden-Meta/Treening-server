@@ -1,7 +1,7 @@
 """页面路由。"""
 from pathlib import Path
 
-from flask import Blueprint, redirect, render_template, request, send_file, session, url_for
+from flask import Blueprint, current_app, redirect, render_template, request, send_file, session, url_for
 
 from ..config import BASE_DIR, config
 
@@ -72,6 +72,15 @@ def manual_download():
 
 @views_bp.route("/api/health")
 def health():
-    """健康检查：供 Docker healthcheck 使用。"""
-    return {"ok": True, "service": "treening"}
+    """健康检查：供 Docker healthcheck 使用。带一次 DB 只读探测。
+
+    DB 不可读时返回 503，避免「应用活着但数据库已坏」时健康检查仍显示绿。
+    """
+    try:
+        current_app.extensions["tree_store"].health_check()
+    except Exception:
+        app_logger = current_app.logger
+        app_logger.exception("health check failed: database probe error")
+        return {"ok": False, "service": "treening", "database": "error"}, 503
+    return {"ok": True, "service": "treening", "database": "ok"}
 

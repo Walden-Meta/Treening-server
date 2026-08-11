@@ -21,3 +21,6 @@ dist/
 
 # Docker 构建产物
 *.img.gz
+
+# 发布历史（deploy.sh 在服务器上写，本地无需入库）
+deploys.log

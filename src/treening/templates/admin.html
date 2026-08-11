@@ -61,14 +61,23 @@
   </div>
 
   <section class="admin-card">
-    <h2>开放注册</h2>
-    <p class="hint">开启后登录页出现注册入口，新访客可自助创建普通用户账号。关闭后只能由你在此手动添加。</p>
+    <h2>注册策略</h2>
+    <p class="hint">开放：登录页可自由注册；邀请码：需有效邀请码才能自助注册（一次性，用后即废）；关闭：只能由管理员手动添加用户。</p>
     <div class="toggle-row">
-      <label class="switch">
-        <input type="checkbox" id="open-reg-toggle">
-        <span class="slider"></span>
-      </label>
+      <select id="reg-mode-select">
+        <option value="open">开放注册</option>
+        <option value="invite">邀请码注册</option>
+        <option value="closed">关闭注册</option>
+      </select>
+      <button class="mini-btn" id="reg-mode-save" type="button">保存模式</button>
       <span id="open-reg-state" style="font-size:13px">读取中…</span>
+    </div>
+    <div id="invite-codes-block" hidden style="margin-top:10px">
+      <div style="display:flex;gap:8px;margin-bottom:8px">
+        <input id="new-invite-code" placeholder="新邀请码（可填多个，用空格或逗号分隔）" style="flex:1;min-width:0">
+        <button class="mini-btn" id="add-invite-code" type="button">添加</button>
+      </div>
+      <div id="invite-code-list" style="font-size:13px"></div>
     </div>
     <p class="form-error" id="settings-error" role="alert"></p>
   </section>

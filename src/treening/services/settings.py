@@ -39,11 +39,54 @@ def is_configured() -> bool:
 
 
 def open_registration() -> bool:
-    """是否开放自助注册（登录页显示注册表单）。默认开启。"""
-    value = load().get("open_registration")
-    if isinstance(value, bool):
+    """是否开放自助注册（登录页显示注册表单）。closed 之外均为开放。"""
+    return registration_mode() != "closed"
+
+
+def registration_mode() -> str:
+    """注册三态：open（自由注册）/ invite（需邀请码）/ closed（关闭）。
+
+    settings.json 优先，其次 TREENING_REGISTRATION_MODE 环境变量兜底。
+    """
+    value = load().get("registration_mode")
+    if value in {"open", "invite", "closed"}:
         return value
-    return True  # 缺省开放：建好首管理员后其他人即可自助注册
+    env_mode = os.environ.get("TREENING_REGISTRATION_MODE", "")
+    if env_mode in {"open", "invite", "closed"}:
+        return env_mode
+    # 向后兼容：旧版用 open_registration 布尔控制注册开关
+    legacy = load().get("open_registration")
+    if isinstance(legacy, bool):
+        return "open" if legacy else "closed"
+    return "open"  # 缺省向后兼容：建好首管理员后即可自助注册
+
+
+def registration_invite_codes() -> list[str]:
+    """当前可用的邀请码列表（一次性：注册成功即消费移除）。"""
+    codes = load().get("registration_invite_codes")
+    if isinstance(codes, list):
+        return [str(code).strip() for code in codes if str(code).strip()]
+    return []
+
+
+def consume_invite_code(code: str) -> bool:
+    """消费一个邀请码（成功返回 True 并从列表移除）。幂等：不在列表时返回 False。"""
+    codes = registration_invite_codes()
+    code = code.strip()
+    if code not in codes:
+        return False
+    save({"registration_invite_codes": [c for c in codes if c != code]})
+    return True
+
+
+def save_registration(mode: str, codes: list[str] | None = None) -> dict:
+    """保存注册模式与邀请码列表。codes 传 None 表示不改动。"""
+    patch: dict[str, Any] = {"registration_mode": mode}
+    if codes is not None:
+        patch["registration_invite_codes"] = [
+            str(code).strip() for code in codes if str(code).strip()
+        ]
+    return save(patch)
 
 
 # ── SMTP 发信配置（管理员在后台填写，用于忘记密码发重置邮件） ──

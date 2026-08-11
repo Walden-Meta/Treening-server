@@ -134,6 +134,20 @@ class Config:
         # 单用户固定身份
         self.OWNER_ID: str = "local-owner"
 
+        # ── 生产加固 ──
+        # 环境标识（仅用于 Sentry 等第三方打标签，不影响行为）
+        self.ENV: str = _env("ENV", "production")
+        # HTTPS 下启用 Secure Cookie（默认关闭以便本地 http 开发；Dockerfile 生产置 true）
+        self.COOKIE_SECURE: bool = _env("COOKIE_SECURE", "false").lower() in {"1", "true", "yes"}
+        # 是否位于可信反向代理（nginx）之后：启用 ProxyFix 读取真实 IP / 协议 / Host
+        self.BEHIND_PROXY: bool = _env("BEHIND_PROXY", "false").lower() in {"1", "true", "yes"}
+        # 额外放行的 Origin（逗号分隔；缺省只允许同源请求）
+        self.ALLOWED_ORIGINS: str = _env("ALLOWED_ORIGINS", "")
+        # Sentry DSN：配置后自动初始化错误聚合（sentry-sdk 需另行安装）
+        self.SENTRY_DSN: str = _env("SENTRY_DSN", "")
+        # 注册模式（settings.json 优先，环境变量兜底）：open / invite / closed
+        self.REGISTRATION_MODE: str = _env("REGISTRATION_MODE", "open")
+
     def reload(self) -> None:
         """重新读取 settings.json（向导保存后调用，免重启生效）。"""
         global _settings

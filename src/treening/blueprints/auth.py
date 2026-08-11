@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import re
+import time
 from datetime import datetime, timedelta, timezone
 
 from flask import Blueprint, current_app, jsonify, request, session, url_for
@@ -32,6 +33,7 @@ def status():
     return jsonify({
         "has_users": _store().count_users() > 0,
         "open_registration": settings.open_registration(),
+        "registration_mode": settings.registration_mode(),
     })
 
 
@@ -56,19 +58,32 @@ def register():
     if email_err:
         return jsonify({"ok": False, "error": email_err}), 400
     is_first = _store().count_users() == 0
-    if not is_first and not settings.open_registration():
-        return jsonify({"ok": False, "error": "注册未开放，请联系管理员"}), 403
-    if not is_first and not auth.registration_allowed(ip):
-        return jsonify({
-            "ok": False,
-            "error": f"该 IP 每小时最多注册 {auth.MAX_REGISTRATIONS_PER_IP} 个账号，请稍后再试",
-        }), 429
+    invite_code = ""
+    if not is_first:
+        # 注册三态：open 自由 / invite 需邀请码 / closed 关闭
+        mode = settings.registration_mode()
+        if mode == "closed":
+            return jsonify({"ok": False, "error": "注册未开放，请联系管理员"}), 403
+        if mode == "invite":
+            invite_code = str(data.get("invite_code", "")).strip()
+            if not invite_code:
+                return jsonify({"ok": False, "error": "请输入邀请码"}), 400
+            if invite_code not in settings.registration_invite_codes():
+                return jsonify({"ok": False, "error": "邀请码无效或已被使用"}), 400
+        if not auth.registration_allowed(ip):
+            return jsonify({
+                "ok": False,
+                "error": f"该 IP 每小时最多注册 {auth.MAX_REGISTRATIONS_PER_IP} 个账号，请稍后再试",
+            }), 429
     role = "admin" if is_first else "user"
     user = _store().create_user(
         username, auth.hash_password(password), role=role, email=email
     )
     if not user:
         return jsonify({"ok": False, "error": "用户名已存在"}), 409
+    # 邀请码只在建号成功后消费，避免「用户名冲突/校验失败」白烧一个码
+    if invite_code:
+        settings.consume_invite_code(invite_code)
     # 新账号默认第一个样例：「你是谁」主题，让春宁当场自介并演示三出口
     _store().seed_welcome_session(user["id"])
     auth.record_registration(ip)
@@ -79,6 +94,8 @@ def register():
     session["user_id"] = user["id"]
     session["username"] = user["username"]
     session["role"] = user["role"]
+    # login_at 用于改密后旧会话失效判定（guard 里与 password_changed_at 比对）
+    session["login_at"] = time.time()
     return jsonify({"ok": True, "user": _public_user(user)})
 
 
@@ -135,6 +152,8 @@ def login():
     session["user_id"] = user["id"]
     session["username"] = user["username"]
     session["role"] = user["role"]
+    # login_at 用于改密后旧会话失效判定（guard 里与 password_changed_at 比对）
+    session["login_at"] = time.time()
     _store().touch_user_login(user["id"], ip)
     _store().touch_user_activity(user["id"], ip)
     return jsonify({"ok": True, "user": _public_user(user)})

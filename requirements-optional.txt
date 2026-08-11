@@ -2,3 +2,5 @@
 python-docx>=1.0
 # 可选：开发测试
 pytest>=7.0
+# 可选：Sentry 错误聚合（设置 TREENING_SENTRY_DSN 后生效）
+sentry-sdk>=2.0

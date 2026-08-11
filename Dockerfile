@@ -32,7 +32,10 @@ VOLUME ["/app/data"]
 ENV TREENING_HOST=0.0.0.0 \
     TREENING_PORT=5000 \
     TREENING_DATABASE_URL=sqlite:////app/data/tree.db \
-    TREENING_METHODOLOGY_DIR=/app/methodology
+    TREENING_METHODOLOGY_DIR=/app/methodology \
+    # 生产安全开关：HTTPS 下 Secure Cookie + 位于 nginx 之后启用真实 IP 信任链
+    TREENING_COOKIE_SECURE=true \
+    TREENING_BEHIND_PROXY=true
 
 EXPOSE 5000
 

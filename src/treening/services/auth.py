@@ -18,6 +18,11 @@ from werkzeug.security import check_password_hash, generate_password_hash
 MAX_FAILURES = 5
 LOCK_WINDOW_SECONDS = 15 * 60
 
+# 每 IP 失败上限：防「同 IP 对大量用户名做字典尝试」——按 IP 维度累计，
+# 与「用户名|IP」维度的 5 次锁定互补（后者挡单账号爆破，前者挡批量探测）。
+MAX_IP_FAILURES = 40
+IP_LOCK_SECONDS = 15 * 60
+
 # 密码策略：只限长短，不强制复杂度（限流已兜底暴力破解）
 MIN_PASSWORD_LENGTH = 8
 MAX_PASSWORD_LENGTH = 64
@@ -41,6 +46,8 @@ FORGOT_WINDOW_SECONDS = 60 * 60
 
 # key("user|ip") -> {"failures": [...timestamps], "locked_until": float}
 _login_state: dict[str, dict[str, Any]] = {}
+# ip -> {"failures": [...timestamps], "locked_until": float}（跨用户名的 IP 级探测防护）
+_ip_failure_state: dict[str, dict[str, Any]] = {}
 # ip -> [注册成功时间戳...]
 _registration_state: dict[str, list[float]] = {}
 # key("user|ip") -> [忘记密码请求时间戳...]
@@ -83,10 +90,14 @@ def record_registration(ip: str) -> None:
 
 
 def is_locked(username: str, ip: str) -> bool:
+    """登录是否被锁：单账号（用户名|IP）5 次失败 或 该 IP 累计 40 次失败。"""
     state = _login_state.get(_key(username, ip))
-    if not state:
-        return False
-    return bool(state.get("locked_until") and state["locked_until"] > time.time())
+    if state and state.get("locked_until") and state["locked_until"] > time.time():
+        return True
+    ip_state = _ip_failure_state.get(ip)
+    if ip_state and ip_state.get("locked_until") and ip_state["locked_until"] > time.time():
+        return True
+    return False
 
 
 def record_failure(username: str, ip: str) -> None:
@@ -99,9 +110,18 @@ def record_failure(username: str, ip: str) -> None:
         state["locked_until"] = now + LOCK_WINDOW_SECONDS
         state["failures"] = []
 
+    # IP 级累计（跨用户名）：防止同 IP 对多个账号做字典尝试
+    ip_state = _ip_failure_state.setdefault(ip, {"failures": [], "locked_until": 0.0})
+    ip_state["failures"] = [t for t in ip_state["failures"] if now - t < IP_LOCK_SECONDS]
+    ip_state["failures"].append(now)
+    if len(ip_state["failures"]) >= MAX_IP_FAILURES:
+        ip_state["locked_until"] = now + IP_LOCK_SECONDS
+        ip_state["failures"] = []
+
 
 def clear_failures(username: str, ip: str) -> None:
     _login_state.pop(_key(username, ip), None)
+    _ip_failure_state.pop(ip, None)
 
 
 def validate_email(email: str) -> str | None:

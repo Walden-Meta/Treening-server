@@ -35,3 +35,37 @@ treening serve    # 或 python -m treening serve
 - `src/treening/` — 应用本体（Flask + 原生 JS）
 - `data/` — 运行时数据（SQLite + settings，gitignored）
 - `docs/` — 操作手册（md / PDF / HTML）与设计文档
+
+## 生产发布与回滚
+
+发布链路：**本机构建 → docker save | gzip → scp → 远端 docker load → compose up**。
+镜像按 `TAG=时间戳+commit` 打版本标签并永久保留最近 N 份不可变产物，可精确回滚。
+
+```bash
+./deploy.sh              # 构建 + 同步部署文件 + 发布 + 健康检查
+./deploy.sh --no-build   # 用本地已有 latest 镜像发布
+./rollback.sh            # 回滚到最近一次成功部署
+./rollback.sh <TAG>      # 回滚到指定版本（./rollback.sh --list 查看）
+KEEP_IMAGES=5 ./deploy.sh  # 本地/远端各保留 5 个版本（默认 3）
+```
+
+- 每次发布的镜像 ID（sha256）记入远端 `deploys.log`，`rollback.sh` 据此定位可回滚版本。
+- 健康检查通过 `docker compose` healthcheck（含 SQLite 只读探测），失败会直接提示回滚命令。
+- 回滚先加载不可变的 `.img.gz`（保证与发布时完全一致），再 `docker tag` 到 `latest` 重建。
+
+## 敏感配置与威胁边界
+
+- **API Key / SMTP 授权码**：放在服务器 `.env`（`chmod 600`）或应用内 `settings.json`，**不要提交到仓库**。
+- 本仓库已 `.gitignore` 排除 `.env` / `docker-data/` / `*.img.gz`。
+- **威胁边界**：这是单机 2C2G 部署。服务器被攻破即视为 Key 泄露——按此边界设计，不要依赖"加密 at rest"来补救权限失控。加密在传输层（TLS）与密钥访问控制（文件权限）上做，不叠加无意义的静态加密。
+
+## 生产加固清单（已部署）
+
+- 注册策略：`open / invite / closed` 三态，邀请码一次性使用（管理面板可运行时切换）
+- 禁用用户 / 改密后旧 session 全局失效（`is_active` + `password_changed_at` 校验）
+- 登录限速：每用户 5 次失败锁 15 分钟；每 IP 40 次失败跨用户名锁（防字典爆破）
+- 真实 IP 信任链：nginx 反代 + `BEHIND_PROXY`（werkzeug ProxyFix `x_for=1`）
+- `SESSION_COOKIE_SECURE=true` + Origin 校验（跨域写请求拒绝）
+- `/api/health` 带 SQLite 只读探测（DB 坏时 503，Docker healthcheck 转红）
+- Sentry 可选错误聚合（`TREENING_SENTRY_DSN`，镜像内需装 `sentry-sdk`）
+- 日志轮转：json-file 驱动，单文件 20MB / 最多 5 个

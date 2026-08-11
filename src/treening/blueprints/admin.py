@@ -213,12 +213,61 @@ def get_settings():
     return jsonify({
         "ok": True,
         "open_registration": settings.open_registration(),
+        "registration_mode": settings.registration_mode(),
         "quota_enabled": bool(config.QUOTA_ENABLED),
         "max_questions": int(config.MAX_QUESTIONS),
         "api_configured": bool(config.API_KEY.strip()),
         "api_url": config.API_URL,
         "model": config.MODEL,
         "user_count": _store().count_users(),
+    })
+
+
+@admin_bp.route("/registration", methods=["GET"])
+def get_registration():
+    """读取注册策略：模式 + 剩余邀请码。"""
+    guard = _admin_required()
+    if guard:
+        return guard
+    return jsonify({
+        "ok": True,
+        "mode": settings.registration_mode(),
+        "codes": settings.registration_invite_codes(),
+        "user_count": _store().count_users(),
+    })
+
+
+@admin_bp.route("/registration", methods=["POST"])
+def update_registration():
+    """保存注册策略。
+
+    body: { "mode": "open"|"invite"|"closed",
+            "add_codes": ["A", "B"], "remove_codes": ["C"] }
+    add/remove 均可省略；mode 必填。
+    """
+    guard = _admin_required()
+    if guard:
+        return guard
+    data = request.get_json(silent=True) or {}
+    mode = str(data.get("mode", "")).strip()
+    if mode not in {"open", "invite", "closed"}:
+        return jsonify({"ok": False, "error": "注册模式必须是 open / invite / closed 之一"}), 400
+    codes = list(settings.registration_invite_codes())
+    add_codes = data.get("add_codes")
+    if isinstance(add_codes, list):
+        for code in add_codes:
+            code = str(code).strip()
+            if code and code not in codes:
+                codes.append(code)
+    remove_codes = data.get("remove_codes")
+    if isinstance(remove_codes, list):
+        remove_set = {str(code).strip() for code in remove_codes}
+        codes = [code for code in codes if code not in remove_set]
+    settings.save_registration(mode, codes)
+    return jsonify({
+        "ok": True,
+        "mode": settings.registration_mode(),
+        "codes": settings.registration_invite_codes(),
     })
 
 
