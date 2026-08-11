@@ -20,6 +20,7 @@ from typing import Any
 from flask import Blueprint, current_app, jsonify, request, send_file, session
 
 from ..config import config, layout_prefs_for
+from ..persona_presets import persona_presets
 from ..services.exporter import render_export
 from ..services.methodology import Methodology
 from ..services.provider import TreeProvider, TreeProviderError, is_retryable_provider_error
@@ -53,6 +54,16 @@ def _user_config() -> dict[str, Any]:
     """当前登录用户的个性化配置（persona/命名/拆解开关/模型）。无记录时返回空。"""
     cfg = _store().get_user_config(_identity())
     return cfg or {}
+
+
+def _clean_persona(value: Any) -> str | None:
+    """清洗树级人设输入：非 str / 空视为「跟随默认」；超长返回 None（调用方回 400）。"""
+    if value is None or not isinstance(value, str):
+        return ""
+    persona = value.strip()
+    if len(persona) > int(config.PERSONA_MAX_CHARS):
+        return None
+    return persona
 
 
 def _model_config_for(user_cfg: dict[str, Any]) -> tuple[str, str, str]:
@@ -188,6 +199,14 @@ def _run_job(app, job_id: str, user_id: str) -> None:
             # 后台线程无请求上下文，直接用传入的 user_id 读用户配置
             user_cfg = _store().get_user_config(user_id) or {}
             api_key, api_url, model = _model_config_for(user_cfg)
+            # 人设优先级：本树人设 > 用户全局人设 > 系统默认（春宁）。
+            # 一棵树可以指定自己的陪伴者（如「情绪树洞」），不指定则跟随全局。
+            quiz_session = _store().get_session(job["session_id"], user_id) or {}
+            persona = (
+                quiz_session.get("persona")
+                or user_cfg.get("persona")
+                or config.persona()
+            )
             provider = TreeProvider(
                 _methodology(),
                 api_key,
@@ -195,7 +214,7 @@ def _run_job(app, job_id: str, user_id: str) -> None:
                 model,
                 int(config.PROVIDER_TIMEOUT_SECONDS),
                 context_limit,
-                user_cfg.get("persona") or config.persona(),
+                persona,
                 _deconstruction_for(user_cfg),
                 int(config.THINKING_BUDGET_TOKENS),
             )
@@ -361,7 +380,11 @@ def get_session():
 @api_bp.route("/session", methods=["POST"])
 def create_session():
     user_id = _identity()
-    quiz_session = _store().create_session(user_id)
+    data = request.get_json(silent=True) or {}
+    persona = _clean_persona(data.get("persona"))
+    if persona is None:
+        return jsonify({"error": "人设内容过长，请缩短后重试", "code": "tree_persona_too_long"}), 400
+    quiz_session = _store().create_session(user_id, persona=persona)
     session["tree_session_id"] = quiz_session["id"]
     return jsonify({
         "ok": True,
@@ -372,6 +395,12 @@ def create_session():
         "branch_labels": _branch_labels_for(_user_config()),
         "layout_prefs": _layout_prefs_for(_user_config()),
     }), 201
+
+
+@api_bp.route("/persona-presets", methods=["GET"])
+def get_persona_presets():
+    """内置人设预设列表（前端建树/切人设下拉用）。"""
+    return jsonify({"presets": persona_presets()})
 
 
 @api_bp.route("/sessions", methods=["GET"])
@@ -403,11 +432,19 @@ def update_session(session_id: str):
     # 重名保护：同用户其他活跃主题已占用该标题时拒绝修改，前端可据此提示
     if new_title and store.session_title_taken(user_id, new_title, exclude_session_id=session_id):
         return jsonify({"error": "已存在同名学习主题，请换一个名称", "code": "title_conflict"}), 409
+    # 只有请求显式带了 persona 才更新（切回默认传空字符串）；只改标题时不得动它
+    if "persona" in data:
+        new_persona = _clean_persona(data.get("persona"))
+        if new_persona is None:
+            return jsonify({"error": "人设内容过长，请缩短后重试", "code": "tree_persona_too_long"}), 400
+    else:
+        new_persona = None
     updated = store.update_session(
         session_id,
         user_id,
         title=new_title,
         summary=data.get("summary") if isinstance(data.get("summary"), str) else None,
+        persona=new_persona,
     )
     if not updated:
         return jsonify({"error": "主题不存在", "code": "tree_session_not_found"}), 404
@@ -596,7 +633,11 @@ def ask():
             request.environ["session_id"] = existing["session_id"]
             return _idempotent_response(existing, store)
     if not isinstance(session_id, str) or not store.get_session(session_id, user_id):
-        quiz_session = store.create_session(user_id)
+        # 直接提问自动建树时，可顺带带上新主题要用的树人设
+        persona = _clean_persona(data.get("persona"))
+        if persona is None:
+            return jsonify({"error": "人设内容过长，请缩短后重试", "code": "tree_persona_too_long"}), 400
+        quiz_session = store.create_session(user_id, persona=persona)
         session_id = quiz_session["id"]
         session["tree_session_id"] = session_id
     request.environ["session_id"] = session_id

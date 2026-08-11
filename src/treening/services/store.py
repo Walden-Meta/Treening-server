@@ -328,6 +328,8 @@ class TreeStore:
                 conn.execute("ALTER TABLE quiz_sessions ADD COLUMN status TEXT NOT NULL DEFAULT 'active'")
             if "archived_at" not in session_columns:
                 conn.execute("ALTER TABLE quiz_sessions ADD COLUMN archived_at TEXT")
+            if "persona" not in session_columns:
+                conn.execute("ALTER TABLE quiz_sessions ADD COLUMN persona TEXT NOT NULL DEFAULT ''")
             conn.execute(
                 """
                 UPDATE quiz_sessions
@@ -381,16 +383,16 @@ class TreeStore:
     def _row_to_dict(row: sqlite3.Row | None) -> dict[str, Any] | None:
         return dict(row) if row else None
 
-    def create_session(self, user_id: str, title: str = "") -> dict[str, Any]:
+    def create_session(self, user_id: str, title: str = "", persona: str = "") -> dict[str, Any]:
         session_id = _new_id()
         now = _now()
         with self._connection() as conn:
             conn.execute(
                 """
-                INSERT INTO quiz_sessions(id, user_id, title, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO quiz_sessions(id, user_id, title, persona, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                (session_id, user_id, title, now, now),
+                (session_id, user_id, title, persona.strip(), now, now),
             )
         return self.get_session(session_id, user_id)  # type: ignore[return-value]
 
@@ -508,6 +510,7 @@ class TreeStore:
         *,
         title: str | None = None,
         summary: str | None = None,
+        persona: str | None = None,
     ) -> dict[str, Any] | None:
         session = self.get_session(session_id, user_id)
         if not session:
@@ -520,6 +523,9 @@ class TreeStore:
         if summary is not None:
             assignments.append("summary = ?")
             values.append(summary.strip()[:500])
+        if persona is not None:
+            assignments.append("persona = ?")
+            values.append(persona.strip()[:4000])
         if not assignments:
             return session
         assignments.append("updated_at = ?")

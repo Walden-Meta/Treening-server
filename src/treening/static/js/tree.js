@@ -21,6 +21,10 @@
     layoutPrefs: {},  // 全局布局偏好：qa_gap / branch_gap / node_width / node_height
     canvasUndo: window.TreeningHistoryState.createUndoStack(30),
     viewTransitionTimer: null,
+    personaPresets: [],   // 内置人设预设（GET /api/quiz/persona-presets）
+    sessionPersona: "",   // 当前树的人设文字；空 = 跟随全局默认
+    pendingPersonaMode: null,  // 人设对话框用途："new" 建树 / "switch" 切人设
+    pendingEmptySession: false,  // 新主题已建空树：虽无节点，工作台已进入「树状态」（显示标题/陪伴者）
   };
 
   const MIN_SCALE = 0.32;
@@ -90,6 +94,10 @@
     readerDeconContradiction: $("#reader-decon-contradiction"),
     readerDeconPractice: $("#reader-decon-practice"),
     readerDeconQuestions: $("#reader-decon-questions"),
+    personaTag: $("#persona-tag"), personaTagLabel: $("#persona-tag-label"),
+    personaModal: $("#persona-modal"), personaModalTitle: $("#persona-modal-title"),
+    personaOptions: $("#persona-options"), personaModalCancel: $("#persona-modal-cancel"),
+    personaModalConfirm: $("#persona-modal-confirm"), personaModalBackdrop: $("#persona-modal"),
   };
 
   let BRANCH_LABELS = {
@@ -126,7 +134,10 @@
       return body;
     },
     getSession() { return this.fetchJson("/api/quiz/session"); },
-    createSession() { return this.fetchJson("/api/quiz/session", { method: "POST" }); },
+    createSession(persona = "") { return this.fetchJson("/api/quiz/session", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ persona }),
+    }); },
+    getPersonaPresets() { return this.fetchJson("/api/quiz/persona-presets"); },
     listSessions() { return this.fetchJson("/api/quiz/sessions"); },
     getSessionById(sessionId) { return this.fetchJson(`/api/quiz/sessions/${encodeURIComponent(sessionId)}`); },
     deleteSession(sessionId) { return this.fetchJson(`/api/quiz/sessions/${encodeURIComponent(sessionId)}`, { method: "DELETE" }); },
@@ -2378,7 +2389,8 @@
     const focusNode = nodeById(State.currentNodeId); const focusDepth = focusNode ? depthOf(focusNode.id) : Math.max(0, ...State.nodes.map((node) => depthOf(node.id)));
     const rootQuestion = State.nodes.find((node) => node.role === "user" && !node.parent_id)?.content;
     const visibleCount = Graph.model.viewState.visibleIds.size;
-    DOM.studyApp?.classList.toggle("has-tree", State.nodes.length > 0);
+    // 有节点 → 树状态；刚建好的空主题也算（展示标题与陪伴者标签）
+    DOM.studyApp?.classList.toggle("has-tree", State.nodes.length > 0 || State.pendingEmptySession);
     DOM.studyApp?.classList.toggle("is-large-tree", State.nodes.length > 80);
     DOM.viewport.dataset.visibleNodes = String(visibleCount);
     if (DOM.workspaceTitle) DOM.workspaceTitle.textContent = State.sessionTitle || compactText(rootQuestion || "未命名学习主题");
@@ -2742,11 +2754,14 @@
     State.sessionId = result.session?.id || null;
     if (State.sessionId) activateFoldSession(State.sessionId);
     else State.foldedBranches = new Set();
+    State.pendingEmptySession = false;
     State.maxBranches = result.max_branches || 3;
     applyBranchLabels(result.branch_labels);
     applyLayoutPrefs(result.layout_prefs);
     State.sessionTitle = result.session?.title || result.session?.root_question || "";
+    State.sessionPersona = result.session?.persona || "";
     setQuota(result.quota); renderInitialNodes(result.nodes);
+    refreshPersonaTag();
     setComposerActive(!result.session);  // 空树显示输入框，有树收起
     resumeActiveJobs(result);
     // Keep a delayed fallback independent of the initial request. In some
@@ -2769,11 +2784,14 @@
     if (State.pendingJobs.size > 0 && !window.confirm("仍有学习请求处理中，切换主题会忽略它们，确定继续吗？")) return;
     const result = await API.getSessionById(sessionId);
     State.sessionGeneration += 1; clearPendingJobs();
+    State.pendingEmptySession = false;
     State.sessionId = result.session.id; activateFoldSession(State.sessionId); State.maxBranches = result.max_branches || State.maxBranches;
     applyBranchLabels(result.branch_labels);
     applyLayoutPrefs(result.layout_prefs);
     State.sessionTitle = result.session.title || result.session.root_question || "";
+    State.sessionPersona = result.session.persona || "";
     setQuota(result.quota); renderInitialNodes(result.nodes);
+    refreshPersonaTag();
     setComposerActive(false);  // 有树主题默认收起输入框
     resumeActiveJobs(result);
     chooseInteractionType("question"); await loadSessionHistory();
@@ -2800,16 +2818,85 @@
       appendError(error.message || "导出失败，请稍后重试。");
     } finally { DOM.exportButton.disabled = false; }
   }
-  async function createNewSession() {
-    if (State.pendingJobs.size > 0 && !window.confirm("仍有学习请求处理中，确定开始新主题吗？")) return;
-    const result = await API.createSession();
+  function personaNameFor(text) {
+    if (!text) return "跟随默认";
+    const match = State.personaPresets.find((preset) => preset.text === text);
+    return match ? match.name : "自定义人设";
+  }
+
+  function refreshPersonaTag() {
+    if (!DOM.personaTag) return;
+    if (!State.sessionId) { DOM.personaTag.hidden = true; return; }
+    DOM.personaTag.hidden = false;
+    DOM.personaTagLabel.textContent = personaNameFor(State.sessionPersona);
+  }
+
+  function renderPersonaOptions() {
+    if (!DOM.personaOptions) return;
+    DOM.personaOptions.innerHTML = "";
+    const add = (value, name, desc, checked) => {
+      const label = document.createElement("label");
+      label.className = "persona-option";
+      const input = document.createElement("input");
+      input.type = "radio"; input.name = "persona-choice"; input.value = value; input.checked = checked;
+      const nameSpan = document.createElement("span"); nameSpan.className = "persona-option-name"; nameSpan.textContent = name;
+      const descSpan = document.createElement("span"); descSpan.className = "persona-option-desc"; descSpan.textContent = desc;
+      label.append(input, nameSpan, descSpan);
+      DOM.personaOptions.append(label);
+    };
+    add("", "跟随默认", "全局配置里的人设（默认春宁）", !State.sessionPersona);
+    for (const preset of State.personaPresets) {
+      add(preset.text, preset.name, preset.description, preset.text === State.sessionPersona);
+    }
+  }
+
+  function openPersonaModal(mode) {
+    State.pendingPersonaMode = mode;
+    if (!DOM.personaModal) return;
+    if (DOM.personaModalTitle) {
+      DOM.personaModalTitle.textContent = mode === "switch" ? "切换这棵树的陪伴者" : "新主题：选一位陪伴者";
+    }
+    renderPersonaOptions();
+    DOM.personaModal.hidden = false;
+  }
+
+  function closePersonaModal() {
+    if (DOM.personaModal) DOM.personaModal.hidden = true;
+    State.pendingPersonaMode = null;
+  }
+
+  function selectedPersonaValue() {
+    const selected = DOM.personaOptions ? DOM.personaOptions.querySelector('input[name="persona-choice"]:checked') : null;
+    return selected ? selected.value : "";
+  }
+
+  async function loadPersonaPresets() {
+    try {
+      const result = await API.getPersonaPresets();
+      State.personaPresets = Array.isArray(result.presets) ? result.presets : [];
+    } catch (_) {
+      State.personaPresets = [];
+    }
+  }
+
+  async function startNewSession(persona) {
+    const result = await API.createSession(persona);
     State.sessionGeneration += 1;
     clearPendingJobs();
     State.sessionId = result.session.id; activateFoldSession(State.sessionId); State.maxBranches = result.max_branches || State.maxBranches;
     applyBranchLabels(result.branch_labels);
     applyLayoutPrefs(result.layout_prefs);
     State.sessionTitle = "";
+    State.sessionPersona = result.session.persona || "";
+    State.pendingEmptySession = true;  // 空主题也进入树状态，标题区/陪伴者标签立即可见
     renderInitialNodes([]); setQuota(result.quota); DOM.messageInput.value = ""; chooseInteractionType("question"); setComposerActive(true); await loadSessionHistory();
+    refreshPersonaTag();
+  }
+
+  function createNewSession() {
+    if (State.pendingJobs.size > 0 && !window.confirm("仍有学习请求处理中，确定开始新主题吗？")) return;
+    // 新主题 = 选一棵树的陪伴者：先弹人设选择，确认后建树
+    openPersonaModal("new");
   }
   DOM.messageForm.addEventListener("submit", submitMessage);
   DOM.messageInput.addEventListener("keydown", (event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); DOM.messageForm.requestSubmit(); } });
@@ -2849,7 +2936,29 @@
   DOM.exportButton.addEventListener("click", () => exportSession());
   if (DOM.concealAllButton) DOM.concealAllButton.addEventListener("click", concealAllNodes);
   if (DOM.revealAllButton) DOM.revealAllButton.addEventListener("click", revealAllNodes);
-  DOM.newSessionButton.addEventListener("click", () => createNewSession().catch((error) => appendError(error.message)));
+  DOM.newSessionButton.addEventListener("click", () => { try { createNewSession(); } catch (error) { appendError(error.message); } });
+  // 人设选择对话框：新主题建树 / 已开树切人设共用
+  DOM.personaModalConfirm?.addEventListener("click", async () => {
+    const persona = selectedPersonaValue();
+    const mode = State.pendingPersonaMode;
+    closePersonaModal();
+    try {
+      if (mode === "switch" && State.sessionId) {
+        await API.updateSession(State.sessionId, { persona });
+        State.sessionPersona = persona;
+        refreshPersonaTag();
+      } else if (mode === "new") {
+        await startNewSession(persona);
+      }
+    } catch (error) { appendError(error.message); }
+  });
+  DOM.personaModalCancel?.addEventListener("click", () => closePersonaModal());
+  DOM.personaModalBackdrop?.addEventListener("click", (event) => {
+    if (event.target === DOM.personaModal) closePersonaModal();
+  });
+  DOM.personaTag?.addEventListener("click", () => {
+    if (State.sessionId) openPersonaModal("switch");
+  });
   if (DOM.railCollapseToggle) {
     DOM.railCollapseToggle.addEventListener("click", () => {
       const collapsed = DOM.studyApp.classList.toggle("is-rail-collapsed");
@@ -2886,5 +2995,6 @@
     fetch("/api/auth/ping", { method: "GET", cache: "no-store" }).catch(() => {});
   }, 60000);
 
+  loadPersonaPresets();
   setupCanvas(); setupResponsivePanels(); renderGraph(); loadSession();
 })();

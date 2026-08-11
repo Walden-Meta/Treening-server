@@ -21,6 +21,11 @@
       </div>
       <div class="workspace-heading" aria-live="polite">
         <h2 id="workspace-title">未命名学习主题</h2>
+        <button class="persona-tag" id="persona-tag" type="button" hidden title="这棵树的陪伴者，点击可切换">
+          <span class="persona-tag-dot" aria-hidden="true"></span>
+          <span id="persona-tag-label">跟随默认</span>
+          <span class="persona-tag-caret" aria-hidden="true">▾</span>
+        </button>
       </div>
       <div class="header-actions">
         <span class="quota" id="quota-label" hidden>今日剩余 8 / 8</span>
@@ -214,6 +219,18 @@
       </aside>
     </div>
   </section>
+
+  <div class="modal-backdrop" id="persona-modal" hidden>
+    <div class="modal persona-modal" role="dialog" aria-modal="true" aria-labelledby="persona-modal-title">
+      <h3 id="persona-modal-title">新主题：选一位陪伴者</h3>
+      <p class="modal-hint">不同主题用不同人设。这棵树选定后，树里的回答都按这位陪伴者的方式回应；随时可在左上角切换。</p>
+      <div class="persona-options" id="persona-options"></div>
+      <div class="modal-actions">
+        <button class="button button-quiet" id="persona-modal-cancel" type="button">取消</button>
+        <button class="button button-primary" id="persona-modal-confirm" type="button">确定</button>
+      </div>
+    </div>
+  </div>
 </main>
 <script src="/static/js/fold-state.js?v=20260803-1" defer></script>
 <script src="/static/js/view-state.js?v=20260804-3" defer></script>

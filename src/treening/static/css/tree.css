@@ -145,6 +145,26 @@ html[data-theme="dark"] .theme-toggle-switch .theme-toggle-thumb .theme-toggle-m
 .workspace-heading .eyebrow { margin-bottom: 7px; }
 .workspace-heading h2 { max-width: min(760px, 62vw); margin: 0; overflow: hidden; color: var(--quiz-text); font-size: clamp(21px, 2.2vw, 28px); font-weight: 600; letter-spacing: -.02em; line-height: 1.2; text-overflow: ellipsis; white-space: nowrap; }
 .workspace-meta { margin: 7px 0 0; color: var(--quiz-faint); font-size: var(--font-label); }
+/* 当前树的陪伴者标签：标题下方，点击可切换人设 */
+.persona-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  padding: 2px 10px 2px 8px;
+  border: 1px solid var(--quiz-line);
+  border-radius: 999px;
+  background: var(--quiz-surface);
+  color: var(--quiz-faint);
+  font-size: 12px;
+  line-height: 20px;
+  cursor: pointer;
+  transition: border-color .15s ease, color .15s ease;
+}
+.persona-tag:hover { border-color: var(--quiz-accent); color: var(--quiz-text); }
+.persona-tag[hidden] { display: none; }
+.persona-tag-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--quiz-accent); flex: none; }
+.persona-tag-caret { font-size: 10px; opacity: .7; }
 .study-app.has-tree .study-header { min-height: 72px; align-items: center; padding-bottom: 16px; }
 .study-app.has-tree .header-intro { display: none; }
 .study-app.has-tree .workspace-heading { display: block; }
@@ -1590,3 +1610,45 @@ html[data-theme="dark"] .detail-cell-questions {
   box-shadow: 0 14px 40px rgba(0,0,0,.5);
 }
 html[data-theme="dark"] .detail-branch-line { stroke: rgba(226,232,240,.22); }
+
+/* ── 人设选择对话框（新主题 / 切人设共用） ── */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(0, 0, 0, .4);
+}
+.modal-backdrop[hidden] { display: none; }
+.modal {
+  width: min(520px, 100%);
+  max-height: min(72vh, 580px);
+  overflow: auto;
+  padding: 24px 26px;
+  border: 1px solid var(--quiz-line);
+  border-radius: 16px;
+  background: var(--quiz-surface);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, .25);
+}
+.modal h3 { margin: 0 0 8px; font-size: 18px; font-weight: 600; color: var(--quiz-text); }
+.modal-hint { margin: 0 0 18px; color: var(--quiz-faint); font-size: 13px; line-height: 1.6; }
+.persona-options { display: grid; gap: 10px; margin-bottom: 20px; }
+.persona-option {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-rows: auto auto;
+  column-gap: 10px;
+  align-items: start;
+  padding: 12px 14px;
+  border: 1px solid var(--quiz-line);
+  border-radius: 12px;
+  cursor: pointer;
+  transition: border-color .15s ease, background .15s ease;
+}
+.persona-option:has(input:checked) { border-color: var(--quiz-accent); background: var(--quiz-surface-raised); }
+.persona-option input { margin-top: 3px; accent-color: var(--quiz-accent); }
+.persona-option-name { font-size: 14px; font-weight: 600; color: var(--quiz-text); }
+.persona-option-desc { font-size: 12px; color: var(--quiz-faint); line-height: 1.5; margin-top: 2px; }
+.modal-actions { display: flex; justify-content: flex-end; gap: 10px; }
