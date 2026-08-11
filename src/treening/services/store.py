@@ -245,6 +245,19 @@ class TreeStore:
                     layout_prefs TEXT NOT NULL DEFAULT '{}',
                     updated_at TEXT NOT NULL DEFAULT ''
                 );
+
+                CREATE TABLE IF NOT EXISTS audit_log (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    actor_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+                    action TEXT NOT NULL,
+                    target TEXT NOT NULL DEFAULT '',
+                    detail TEXT NOT NULL DEFAULT '',
+                    ip TEXT NOT NULL DEFAULT '',
+                    created_at TEXT NOT NULL
+                );
+
+                CREATE INDEX IF NOT EXISTS ix_audit_log_created
+                    ON audit_log(created_at DESC);
                 """
             )
             existing_columns = {
@@ -1125,6 +1138,29 @@ class TreeStore:
         with self._connection() as conn:
             rows = conn.execute(
                 "SELECT * FROM users ORDER BY created_at ASC"
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    # ── 管理操作审计日志 ──
+
+    def add_audit(
+        self, actor_id: str | None, action: str, target: str = "", detail: str = "", ip: str = ""
+    ) -> None:
+        """记录一条管理操作（谁在什么时间对什么做了什么）。"""
+        with self._connection() as conn:
+            conn.execute(
+                "INSERT INTO audit_log (actor_id, action, target, detail, ip, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (actor_id, action, target, detail, ip, _now()),
+            )
+
+    def list_audit(self, limit: int = 200) -> list[dict[str, Any]]:
+        with self._connection() as conn:
+            rows = conn.execute(
+                "SELECT a.*, u.username AS actor_name "
+                "FROM audit_log a LEFT JOIN users u ON u.id = a.actor_id "
+                "ORDER BY a.created_at DESC, a.id DESC LIMIT ?",
+                (limit,),
             ).fetchall()
         return [dict(r) for r in rows]
 

@@ -8,6 +8,7 @@ from flask import Blueprint, current_app, jsonify, request, session
 
 from ..config import config
 from ..services import auth, mail, settings
+from ..services.validation import validate
 
 admin_bp = Blueprint("admin", __name__, url_prefix="/api/admin")
 
@@ -33,6 +34,17 @@ def _is_online(user: dict) -> bool:
 
 def _store():
     return current_app.extensions["tree_store"]
+
+
+def _audit(action: str, target: str = "", detail: str = "") -> None:
+    """记录一条管理操作审计（动作类型、对象、详情、操作人、来源 IP）。"""
+    _store().add_audit(
+        actor_id=session.get("user_id"),
+        action=action,
+        target=target,
+        detail=detail,
+        ip=request.remote_addr or "",
+    )
 
 
 def _admin_required():
@@ -99,12 +111,21 @@ def create_user():
     if guard:
         return guard
     data = request.get_json(silent=True) or {}
+    err = validate(data, {
+        "username": {
+            "type": "string", "required": True,
+            "pattern": USERNAME_RE.pattern,
+            "pattern_msg": "用户名需为 2-20 位字母、数字、下划线、连字符或中文",
+        },
+        "password": {"type": "string", "required": True, "label": "密码"},
+        "email": {"type": "string", "label": "邮箱"},  # 可空=未绑定
+    })
+    if err:
+        return jsonify({"ok": False, "error": err}), 400
     username = str(data.get("username", "")).strip()
     password = str(data.get("password", ""))
     email = str(data.get("email", "")).strip().lower()
     role = "admin" if data.get("role") == "admin" else "user"
-    if not USERNAME_RE.fullmatch(username):
-        return jsonify({"ok": False, "error": "用户名需为 2-20 位字母、数字、下划线、连字符或中文"}), 400
     pwd_err = auth.validate_password(password)
     if pwd_err:
         return jsonify({"ok": False, "error": pwd_err}), 400
@@ -118,6 +139,7 @@ def create_user():
         return jsonify({"ok": False, "error": "用户名已存在"}), 409
     # 新账号默认第一个样例：「你是谁」主题
     _store().seed_welcome_session(user["id"])
+    _audit("user.create", target=username, detail=f"角色={role}")
     return jsonify({"ok": True, "users": _public_users()}), 201
 
 
@@ -132,6 +154,7 @@ def update_user(user_id: str):
         return jsonify({"ok": False, "error": "用户不存在"}), 404
     data = request.get_json(silent=True) or {}
     me = session.get("user_id")
+    changes: list[str] = []
 
     # 改密
     if "password" in data:
@@ -140,6 +163,7 @@ def update_user(user_id: str):
         if pwd_err:
             return jsonify({"ok": False, "error": pwd_err}), 400
         store.set_user_password(user_id, auth.hash_password(password))
+        changes.append("改密")
 
     # 改邮箱
     if "email" in data:
@@ -148,6 +172,7 @@ def update_user(user_id: str):
         if email_err:
             return jsonify({"ok": False, "error": email_err}), 400
         store.set_user_email(user_id, email)
+        changes.append("改邮箱")
 
     # 改角色
     if "role" in data:
@@ -158,6 +183,7 @@ def update_user(user_id: str):
             if target["role"] == "admin" and len(admins) <= 1:
                 return jsonify({"ok": False, "error": "不能降级最后一个管理员"}), 400
         store.set_user_role(user_id, role)
+        changes.append(f"角色→{role}")
 
     # 启/禁用
     if "is_active" in data:
@@ -169,12 +195,14 @@ def update_user(user_id: str):
             if target["role"] == "admin" and len(admins) <= 1:
                 return jsonify({"ok": False, "error": "不能禁用最后一个管理员"}), 400
         store.set_user_active(user_id, is_active)
+        changes.append("禁用" if not is_active else "启用")
 
     # 改每日配额（quota_limit：null/省略=用全局默认，0=不限额，N=每日 N 次）
     if "quota_limit" in data:
         ql = data.get("quota_limit")
         if ql is None or ql == "":
             store.set_user_quota(user_id, None)
+            changes.append("配额→默认")
         else:
             try:
                 ql_int = int(ql)
@@ -183,7 +211,10 @@ def update_user(user_id: str):
             if ql_int < 0 or ql_int > 100000:
                 return jsonify({"ok": False, "error": "配额需在 0-100000 之间"}), 400
             store.set_user_quota(user_id, ql_int)
+            changes.append(f"配额→{ql_int}")
 
+    if changes:
+        _audit("user.update", target=target["username"], detail=", ".join(changes))
     return jsonify({"ok": True, "users": _public_users()})
 
 
@@ -201,6 +232,7 @@ def delete_user(user_id: str):
     admins = [u for u in store.list_users() if u["role"] == "admin" and u["is_active"]]
     if target["role"] == "admin" and len(admins) <= 1:
         return jsonify({"ok": False, "error": "不能删除最后一个管理员"}), 400
+    _audit("user.delete", target=target["username"])
     store.delete_user(user_id)
     return jsonify({"ok": True, "users": _public_users()})
 
@@ -249,21 +281,34 @@ def update_registration():
     if guard:
         return guard
     data = request.get_json(silent=True) or {}
+    err = validate(data, {
+        "mode": {
+            "type": "string", "required": True,
+            "choices": ["open", "invite", "closed"], "label": "注册模式",
+        },
+        "add_codes": {"type": "list", "allow_empty": True},
+        "remove_codes": {"type": "list", "allow_empty": True},
+    })
+    if err:
+        return jsonify({"ok": False, "error": err}), 400
     mode = str(data.get("mode", "")).strip()
-    if mode not in {"open", "invite", "closed"}:
-        return jsonify({"ok": False, "error": "注册模式必须是 open / invite / closed 之一"}), 400
     codes = list(settings.registration_invite_codes())
-    add_codes = data.get("add_codes")
-    if isinstance(add_codes, list):
-        for code in add_codes:
-            code = str(code).strip()
-            if code and code not in codes:
-                codes.append(code)
-    remove_codes = data.get("remove_codes")
-    if isinstance(remove_codes, list):
-        remove_set = {str(code).strip() for code in remove_codes}
-        codes = [code for code in codes if code not in remove_set]
+    added: list[str] = []
+    removed: list[str] = []
+    for code in (data.get("add_codes") or []):
+        code = str(code).strip()
+        if code and code not in codes:
+            codes.append(code)
+            added.append(code)
+    remove_set = {str(code).strip() for code in (data.get("remove_codes") or [])}
+    removed = [code for code in remove_set if code in codes]
+    codes = [code for code in codes if code not in remove_set]
     settings.save_registration(mode, codes)
+    _audit(
+        "registration.update", target=mode,
+        detail=(f"添加{len(added)}个邀请码，移除{len(removed)}个"
+                if added or removed else "仅切换注册模式"),
+    )
     return jsonify({
         "ok": True,
         "mode": settings.registration_mode(),
@@ -279,7 +324,17 @@ def update_settings():
     data = request.get_json(silent=True) or {}
     if "open_registration" in data and isinstance(data.get("open_registration"), bool):
         settings.save({"open_registration": data["open_registration"]})
+        _audit("settings.update", detail=f"open_registration={data['open_registration']}")
     return jsonify({"ok": True, "open_registration": settings.open_registration()})
+
+
+@admin_bp.route("/audit", methods=["GET"])
+def get_audit():
+    """管理操作审计日志（最近 200 条，按时间倒序）。"""
+    guard = _admin_required()
+    if guard:
+        return guard
+    return jsonify({"ok": True, "entries": _store().list_audit(limit=200)})
 
 
 # ── SMTP 发信配置（用于忘记密码发邮件） ──
@@ -321,18 +376,21 @@ def save_smtp():
     if guard:
         return guard
     data = request.get_json(silent=True) or {}
+    err = validate(data, {
+        "host": {"type": "string", "required": True, "label": "SMTP 服务器地址"},
+        "port": {"type": "int", "min": 1, "max": 65535, "label": "端口"},
+        "username": {"type": "string", "required": True, "label": "邮箱账号"},
+        "password": {"type": "string", "label": "邮箱授权码"},
+        "from_email": {"type": "string", "label": "发件邮箱"},
+        "from_name": {"type": "string", "label": "发件人名称"},
+    })
+    if err:
+        return jsonify({"ok": False, "error": err}), 400
     host = str(data.get("host", "")).strip()
-    if not host:
-        return jsonify({"ok": False, "error": "SMTP 服务器地址不能为空"}), 400
-    try:
-        port = int(data.get("port") or 465)
-    except (TypeError, ValueError):
-        return jsonify({"ok": False, "error": "端口必须是数字"}), 400
+    port = int(data.get("port") or 465)
     use_ssl = bool(data.get("use_ssl"))
     username = str(data.get("username", "")).strip()
     password = str(data.get("password", "")).strip()
-    if not username:
-        return jsonify({"ok": False, "error": "邮箱账号不能为空"}), 400
     # 留空的密码表示沿用已保存值
     if not password:
         password = settings.smtp_config().get("password", "")
@@ -347,6 +405,7 @@ def save_smtp():
         "from_email": str(data.get("from_email", "")).strip() or username,
         "from_name": str(data.get("from_name", "")).strip() or "Treening",
     })
+    _audit("settings.smtp", detail=f"更新 SMTP 配置（{host}:{port}）")
     return jsonify({"ok": True, "configured": settings.smtp_configured()})
 
 
@@ -356,26 +415,28 @@ def test_smtp():
     if guard:
         return guard
     data = request.get_json(silent=True) or {}
+    err = validate(data, {
+        "host": {"type": "string", "required": True, "label": "SMTP 服务器地址"},
+        "username": {"type": "string", "required": True, "label": "邮箱账号"},
+        "to_email": {"type": "string", "required": True, "label": "测试收件邮箱"},
+        "port": {"type": "int", "min": 1, "max": 65535, "label": "端口"},
+        "password": {"type": "string", "label": "邮箱授权码"},
+    })
+    if err:
+        return jsonify({"ok": False, "error": err}), 400
     host = str(data.get("host", "")).strip()
     username = str(data.get("username", "")).strip()
     password = str(data.get("password", "")).strip()
     to_email = str(data.get("to_email", "")).strip()
-    if not host or not username:
-        return jsonify({"ok": False, "error": "请先完整填写 SMTP 配置再测试"}), 400
     if not password:
         # 授权码留空 = 沿用已保存值（改单项/重新测试时无需重输）
         password = settings.smtp_config().get("password", "")
     if not password:
         return jsonify({"ok": False, "error": "请填写邮箱授权码"}), 400
-    if not to_email:
-        return jsonify({"ok": False, "error": "请填写测试收件邮箱"}), 400
     email_err = auth.validate_email(to_email)
     if email_err:
         return jsonify({"ok": False, "error": email_err}), 400
-    try:
-        port = int(data.get("port") or 465)
-    except (TypeError, ValueError):
-        return jsonify({"ok": False, "error": "端口必须是数字"}), 400
+    port = int(data.get("port") or 465)
     use_ssl = bool(data.get("use_ssl"))
     ok, message = mail.test_smtp(
         host, port, use_ssl, username, password, to_email,

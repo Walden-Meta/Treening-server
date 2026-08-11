@@ -8,6 +8,7 @@ from datetime import datetime, timedelta, timezone
 from flask import Blueprint, current_app, jsonify, request, session, url_for
 
 from ..services import auth, mail, settings
+from ..services.validation import validate
 
 auth_bp = Blueprint("auth", __name__, url_prefix="/api/auth")
 
@@ -45,12 +46,22 @@ def register():
     - 之后：仅在开放注册开启时允许，创建普通用户（按 IP 限频，防批量刷号）。
     """
     data = request.get_json(silent=True) or {}
+    ip = request.remote_addr or "unknown"
+    # 统一入参校验：必填 + 类型 + 用户名白名单正则
+    err = validate(data, {
+        "username": {
+            "type": "string", "required": True,
+            "pattern": USERNAME_RE.pattern,
+            "pattern_msg": "用户名需为 2-20 位字母、数字、下划线、连字符或中文",
+        },
+        "password": {"type": "string", "required": True, "label": "密码"},
+        "email": {"type": "string", "label": "邮箱"},  # 可空=未绑定，validate_email 校验格式
+    })
+    if err:
+        return jsonify({"ok": False, "error": err}), 400
     username = str(data.get("username", "")).strip()
     password = str(data.get("password", ""))
     email = str(data.get("email", "")).strip().lower()
-    ip = request.remote_addr or "unknown"
-    if not USERNAME_RE.fullmatch(username):
-        return jsonify({"ok": False, "error": "用户名需为 2-20 位字母、数字、下划线、连字符或中文"}), 400
     pwd_err = auth.validate_password(password)
     if pwd_err:
         return jsonify({"ok": False, "error": pwd_err}), 400
@@ -119,6 +130,12 @@ def change_password():
     if not user:
         return jsonify({"ok": False, "error": "未登录"}), 401
     data = request.get_json(silent=True) or {}
+    err = validate(data, {
+        "old_password": {"type": "string", "required": True, "label": "旧密码"},
+        "new_password": {"type": "string", "required": True, "label": "新密码"},
+    })
+    if err:
+        return jsonify({"ok": False, "error": err}), 400
     old_password = str(data.get("old_password", ""))
     new_password = str(data.get("new_password", ""))
     if not auth.verify_password(user["password_hash"], old_password):
@@ -133,11 +150,15 @@ def change_password():
 @auth_bp.route("/login", methods=["POST"])
 def login():
     data = request.get_json(silent=True) or {}
+    ip = request.remote_addr or "unknown"
+    err = validate(data, {
+        "username": {"type": "string", "required": True, "label": "用户名"},
+        "password": {"type": "string", "required": True, "label": "密码"},
+    })
+    if err:
+        return jsonify({"ok": False, "error": err}), 400
     username = str(data.get("username", "")).strip()
     password = str(data.get("password", ""))
-    ip = request.remote_addr or "unknown"
-    if not username or not password:
-        return jsonify({"ok": False, "error": "请输入用户名和密码"}), 400
     if auth.is_locked(username, ip):
         return jsonify({"ok": False, "error": "登录失败次数过多，请 15 分钟后再试"}), 429
     user = _store().get_user_by_username(username)
@@ -185,12 +206,16 @@ def forgot_password():
     只有匹配时才真正生成令牌并发信。
     """
     data = request.get_json(silent=True) or {}
-    username = str(data.get("username", "")).strip()
-    email = str(data.get("email", "")).strip().lower()
     ip = request.remote_addr or "unknown"
     generic = {"ok": True, "message": "如果信息正确，重置邮件已发送，30 分钟内有效"}
-    if not username or not email:
-        return jsonify({"ok": False, "error": "请填写用户名和邮箱"}), 400
+    err = validate(data, {
+        "username": {"type": "string", "required": True, "label": "用户名"},
+        "email": {"type": "string", "required": True, "label": "邮箱"},
+    })
+    if err:
+        return jsonify({"ok": False, "error": err}), 400
+    username = str(data.get("username", "")).strip()
+    email = str(data.get("email", "")).strip().lower()
     if not auth.forgot_allowed(username, ip):
         return jsonify({"ok": False, "error": "请求过于频繁，请 1 小时后再试"}), 429
     auth.record_forgot(username, ip)
@@ -220,10 +245,14 @@ def forgot_password():
 def reset_password():
     """用邮件里的令牌设置新密码。令牌哈希比对、30 分钟有效、只能用一次。"""
     data = request.get_json(silent=True) or {}
+    err = validate(data, {
+        "token": {"type": "string", "required": True, "label": "重置令牌"},
+        "password": {"type": "string", "required": True, "label": "密码"},
+    })
+    if err:
+        return jsonify({"ok": False, "error": err}), 400
     token = str(data.get("token", "")).strip()
     password = str(data.get("password", ""))
-    if not token:
-        return jsonify({"ok": False, "error": "重置链接无效，请重新发起"}), 400
     pwd_err = auth.validate_password(password)
     if pwd_err:
         return jsonify({"ok": False, "error": pwd_err}), 400

@@ -331,6 +331,64 @@
     });
   }
 
+  // ── 操作审计 ──
+  const ACTION_LABELS = {
+    "user.create": "创建用户",
+    "user.update": "修改用户",
+    "user.delete": "删除用户",
+    "registration.update": "改注册策略",
+    "settings.update": "改系统设置",
+    "settings.smtp": "改邮件配置",
+  };
+  const auditError = $("#audit-error");
+  const auditBody = $("#audit-table-body");
+  const auditCount = $("#audit-count");
+
+  async function loadAudit() {
+    const d = await api("/audit");
+    auditCount.textContent = `共 ${d.entries.length} 条`;
+    auditBody.textContent = "";
+    if (!d.entries.length) {
+      const row = document.createElement("tr");
+      const td = document.createElement("td");
+      td.colSpan = 6;
+      td.style.color = "var(--quiz-faint)";
+      td.textContent = "暂无记录（管理员执行创建/修改/删除等操作后这里会出现留痕）";
+      row.append(td);
+      auditBody.append(row);
+      return;
+    }
+    for (const e of d.entries) {
+      const row = document.createElement("tr");
+      const cells = [
+        fmtTime(e.created_at),
+        e.actor_name ? e.actor_name : e.actor_id ? `已删除用户 (${e.actor_id})` : "系统",
+        ACTION_LABELS[e.action] || e.action,
+        e.target || "—",
+        e.detail || "—",
+        e.ip || "—",
+      ];
+      for (const [i, text] of cells.entries()) {
+        const td = document.createElement("td");
+        td.textContent = text;
+        if (i === 4) td.style.color = "var(--quiz-faint)";
+        row.append(td);
+      }
+      auditBody.append(row);
+    }
+  }
+
+  function bindAudit() {
+    $("#audit-refresh").addEventListener("click", async () => {
+      auditError.textContent = "";
+      try {
+        await loadAudit();
+      } catch (err) {
+        auditError.textContent = err.message;
+      }
+    });
+  }
+
   async function init() {
     try {
       const me = await fetch("/api/auth/me").then((r) => r.json());
@@ -345,6 +403,8 @@
       bindActions();
       bindSmtp();
       await loadSmtp();
+      bindAudit();
+      await loadAudit();
       // 每 30 秒自动刷新用户列表，保持在线/离线状态新鲜
       setInterval(() => {
         renderUsers().catch(() => {});
