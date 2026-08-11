@@ -145,6 +145,11 @@ class Config:
         self.ALLOWED_ORIGINS: str = _env("ALLOWED_ORIGINS", "")
         # Sentry DSN：配置后自动初始化错误聚合（sentry-sdk 需另行安装）
         self.SENTRY_DSN: str = _env("SENTRY_DSN", "")
+        # 性能追踪采样率：0~1。引导验证阶段可设 1.0（全量 traces），
+        # 平时 0.05 足够看趋势又不烧 Sentry 配额
+        self.SENTRY_TRACES_SAMPLE_RATE: float = float(
+            _env("SENTRY_TRACES_SAMPLE_RATE", "0.05")
+        )
         # 注册模式（settings.json 优先，环境变量兜底）：open / invite / closed
         self.REGISTRATION_MODE: str = _env("REGISTRATION_MODE", "open")
 

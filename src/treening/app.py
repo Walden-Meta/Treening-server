@@ -67,7 +67,7 @@ def _init_sentry() -> None:
     sentry_sdk.init(
         dsn=config.SENTRY_DSN,
         environment=config.ENV,
-        traces_sample_rate=0.05,
+        traces_sample_rate=config.SENTRY_TRACES_SAMPLE_RATE,
         send_default_pii=False,
     )
     logger.info("Sentry error aggregation enabled (env=%s)", config.ENV)
@@ -170,8 +170,6 @@ def create_app() -> Flask:
     if config.BEHIND_PROXY:
         app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 
-    _init_sentry()
-
     store = TreeStore(config.DATABASE_URL)
     app.extensions["tree_store"] = store
     app.extensions["methodology"] = Methodology(config.METHODOLOGY_DIR)
@@ -187,6 +185,8 @@ def create_app() -> Flask:
         app.register_blueprint(bp)
 
     _configure_logging(app)
+    # 日志处理器配好后再启用 Sentry，否则「Sentry 已启用」的 INFO 行会被丢
+    _init_sentry()
 
     @app.before_request
     def _request_start():
