@@ -18,6 +18,8 @@ services:
       TREENING_REGISTRATION_MODE: ${TREENING_REGISTRATION_MODE:-}
       # 错误聚合：填 Sentry DSN 后自动启用（需镜像内安装 sentry-sdk）
       TREENING_SENTRY_DSN: ${TREENING_SENTRY_DSN:-}
+      # 性能追踪采样率：验证期可设 1.0（全量 traces），平时 0.05 不烧配额
+      TREENING_SENTRY_TRACES_SAMPLE_RATE: ${TREENING_SENTRY_TRACES_SAMPLE_RATE:-0.05}
     # 日志轮转：json-file 驱动，单文件 20MB、最多 5 个，防止容器日志无限膨胀
     logging:
       driver: json-file
