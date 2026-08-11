@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import secrets
 import time
@@ -232,25 +233,41 @@ def create_app() -> Flask:
 
     @app.after_request
     def _request_log(resp):
-        """结构化请求日志：方法 / 路径 / 状态码 / 耗时 / request_id / 来源 IP。
+        """结构化请求日志：方法 / 路径 / 状态码 / 耗时 / request_id / 来源 IP / 业务关联。
 
-        X-Request-Id 写回响应头，方便前端或下游在排查问题时带回同一 id。
+        - X-Request-Id 写回响应头；
+        - 4xx/5xx 的 JSON 错误响应把 request_id 也放进 body，用户/前端可凭它回查日志；
+        - 若处理函数通过 request.environ 写了 job_id / session_id，日志行一并带上，
+          方便按具体任务定位整条链路。
         """
         request_id = request.environ.get("request_id", "-")
         start = request.environ.get("_start_time", time.time())
         elapsed_ms = int((time.time() - start) * 1000)
         resp.headers.setdefault("X-Request-Id", request_id)
+        # 错误响应统一注入 request_id（用户报错时能带上同一 id 让管理员查日志）
+        if resp.status_code >= 400 and resp.is_json:
+            try:
+                data = resp.get_json(silent=True)
+                if isinstance(data, dict) and "request_id" not in data:
+                    data["request_id"] = request_id
+                    resp.set_data(json.dumps(data, ensure_ascii=False))
+                    resp.content_type = "application/json"
+            except Exception:
+                pass
         # 静态资源与健康检查不逐条打 INFO 日志，避免噪音
         if not request.path.startswith("/static/") and request.path != "/api/health":
-            app.logger.info(
-                "%s %s -> %d (%dms) rid=%s ip=%s",
-                request.method,
-                request.path,
-                resp.status_code,
-                elapsed_ms,
-                request_id,
-                request.remote_addr or "-",
-            )
+            job_id = request.environ.get("job_id") or ""
+            sess_id = request.environ.get("session_id") or ""
+            parts = [
+                f"{request.method} {request.path} -> {resp.status_code} ({elapsed_ms}ms)",
+                f"rid={request_id}",
+                f"ip={request.remote_addr or '-'}",
+            ]
+            if sess_id:
+                parts.append(f"sess={sess_id}")
+            if job_id:
+                parts.append(f"job={job_id}")
+            app.logger.info(" ".join(parts))
         return resp
 
     _MUTATING_METHODS = {"POST", "PATCH", "PUT", "DELETE"}

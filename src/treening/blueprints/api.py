@@ -591,11 +591,15 @@ def ask():
     if idempotency_key:
         existing = store.get_job_by_idempotency(user_id, idempotency_key)
         if existing:
+            # 日志关联：幂等命中也要带上任务 id，便于按任务排查
+            request.environ["job_id"] = existing["id"]
+            request.environ["session_id"] = existing["session_id"]
             return _idempotent_response(existing, store)
     if not isinstance(session_id, str) or not store.get_session(session_id, user_id):
         quiz_session = store.create_session(user_id)
         session_id = quiz_session["id"]
         session["tree_session_id"] = session_id
+    request.environ["session_id"] = session_id
     if parent_id is not None:
         parent = store.get_node(parent_id, session_id, user_id) if isinstance(parent_id, str) else None
         if not parent:
@@ -662,6 +666,8 @@ def ask():
             question,
             idempotency_key=idempotency_key,
         )
+        if job is not None:
+            request.environ["job_id"] = job["id"]
         if job is None:
             # 并发下同幂等键被另一请求先写入：释放刚预留的配额，返回既有任务
             if config.QUOTA_ENABLED:
@@ -710,6 +716,9 @@ def get_job(job_id: str):
     job = _store().get_job(job_id, _identity())
     if not job:
         return jsonify({"error": "任务不存在", "code": "tree_job_not_found"}), 404
+    # 日志关联：轮询链路按 job/session 过滤
+    request.environ["job_id"] = job_id
+    request.environ["session_id"] = job["session_id"]
     assistant_node = (
         _store().get_node(job["assistant_node_id"], job["session_id"], _identity())
         if job.get("assistant_node_id")

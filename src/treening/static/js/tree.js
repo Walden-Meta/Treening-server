@@ -113,8 +113,12 @@
         throw new Error(body.error || "请先登录");
       }
       if (!response.ok) {
-        const error = new Error(body.error || "请求失败");
+        // 错误响应带 request_id：拼进消息，用户反馈时能带回同一 id 让管理员查日志
+        const msg = body.error || "请求失败";
+        const display = body.request_id ? `${msg}（问题编号 ${body.request_id}）` : msg;
+        const error = new Error(display);
         error.code = body.code; error.status = response.status; error.body = body;
+        error.request_id = body.request_id;
         throw error;
       }
       return body;
