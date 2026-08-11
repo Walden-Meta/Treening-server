@@ -36,6 +36,18 @@ treening serve    # 或 python -m treening serve
 - `data/` — 运行时数据（SQLite + settings，gitignored）
 - `docs/` — 操作手册（md / PDF / HTML）与设计文档
 
+## 提交流程约定（提交 ≠ 上线）
+
+**代码落库与部署上线是两件事，默认不捆绑。**
+
+每批改动完成后：
+
+1. 本地测试通过 → 提交 **textree** main → push GitHub（主仓库）
+2. 同步改动文件到 **textree-server**（本地部署仓库）并提交
+3. **到此为止，不部署**。等负责人明确说「上线 / 部署」后，才执行 `./deploy.sh`
+
+> 例外：紧急安全修复（如服务器已被攻击、密钥泄漏）可跳过第 3 步等待直接部署，但要在提交信息里注明。
+
 ## 生产发布与回滚
 
 发布链路：**本机构建 → docker save | gzip → scp → 远端 docker load → compose up**。
