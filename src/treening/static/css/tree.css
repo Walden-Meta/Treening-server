@@ -1218,7 +1218,7 @@ html[data-theme="dark"] .graph-viewport .bulk-visibility-controls {
 /* ============================================================
    V13 站点 logo：固定在整个界面左上角
    ============================================================ */
-.study-header { position: relative; padding-left: 78px; }
+.study-header { position: relative; padding-left: 92px; }
 .site-logo-link {
   position: absolute;
   left: 0;
