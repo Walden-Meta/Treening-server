@@ -1877,7 +1877,7 @@
         // Touch devices do not have a stable hover state. Tapping an answer
         // card therefore toggles the same branch drawer that desktop users
         // reveal by hovering, without changing the card's measured height.
-        const usesTapDrawer = window.innerWidth <= 860
+        const usesTapDrawer = window.innerWidth <= 767
           || event.pointerType === "touch"
           || event.pointerType === "pen"
           || !window.matchMedia("(hover: hover) and (pointer: fine)").matches;
@@ -2683,7 +2683,7 @@
       const target = panels[name];
       if (!target?.panel) return;
       // 宽屏左栏常驻，历史面板仅窄屏需要；阅读面板任意宽度都可展开
-      if (name === "history" && window.innerWidth >= 1360) return;
+      if (name === "history" && window.innerWidth >= 768) return;
       const shouldOpen = !target.panel.classList.contains("is-panel-open");
       closePanels();
       if (!shouldOpen) return;
@@ -2697,7 +2697,7 @@
     DOM.panelBackdrop?.addEventListener("pointerdown", closePanels);
     DOM.panelBackdrop?.addEventListener("click", closePanels);
     window.addEventListener("keydown", (event) => { if (event.key === "Escape") { clearMarqueeSelection(); closePanels(); } });
-    window.addEventListener("resize", () => { if (window.innerWidth < 900) closePanels(); });
+    window.addEventListener("resize", () => { if (window.innerWidth < 768) closePanels(); });
   }
 
   function resumeActiveJobs(result) {

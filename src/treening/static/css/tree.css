@@ -515,14 +515,14 @@ html[data-theme="dark"] .graph-node.is-current .node-card { border-color: rgba(2
 .graph-viewport.is-overview .node-header { padding-bottom: 8px; font-size: 11px; }
 .graph-viewport.is-overview .node-card { min-height: 76px; }
 
-@media (max-width: 1439px) and (min-width: 1360px) {
+@media (max-width: 1439px) and (min-width: 768px) {
   .quiz-shell { padding-inline: 28px; }
   .study-layout { gap: 18px; }
   .context-strip { grid-template-columns: auto minmax(0, 1fr); }
   .graph-toolbar { grid-column: 1 / -1; justify-content: flex-end; }
 }
 
-@media (max-width: 1359px) {
+@media (max-width: 767px) {
   .quiz-shell { padding-inline: 24px; }
   .workspace-panel-switcher { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
   .panel-toggle { padding-block: 8px; background: rgba(255,255,255,.68); }
@@ -560,7 +560,7 @@ html[data-theme="dark"] .graph-node.is-current .node-card { border-color: rgba(2
   .graph-toolbar { grid-column: 1 / -1; justify-content: flex-end; }
 }
 
-@media (max-width: 860px) {
+@media (max-width: 767px) {
   .quiz-shell { padding: 22px 15px 30px; }
   .study-header { min-height: 0; align-items: flex-start; flex-direction: column; gap: 13px; padding-bottom: 16px; }
   .study-header h1 { font-size: clamp(20px, 5vw, 26px); font-weight: 600; letter-spacing: -.02em; line-height: 1.25; }
@@ -1078,7 +1078,7 @@ html[data-theme="dark"] .canvas-toolbar {
   background: var(--quiz-line-strong);
 }
 
-@media (min-width: 1360px) {
+@media (min-width: 768px) {
   /* 画布占满：布局去掉右栏，阅读栏改为右侧抽屉 */
   .study-layout { position: relative; grid-template-columns: 190px minmax(0, 1fr); }
 
@@ -1124,7 +1124,7 @@ html[data-theme="dark"] .canvas-toolbar {
   transform: translate(-50%, 18px);
   pointer-events: none;
 }
-@media (max-width: 860px) {
+@media (max-width: 767px) {
   .composer.is-collapsed { transform: translateY(18px); }
 }
 
@@ -1132,7 +1132,7 @@ html[data-theme="dark"] .canvas-toolbar {
    V10 删除"当前入口"行与"从这里继续"后：画布占满、卡片操作精简
    ============================================================ */
 .conversation-area { grid-template-rows: minmax(0, 1fr); }
-@media (max-width: 860px) {
+@media (max-width: 767px) {
   .conversation-area { grid-template-rows: minmax(470px, 66dvh) auto; }
 }
 
@@ -1219,7 +1219,7 @@ html[data-theme="dark"] .graph-viewport .bulk-visibility-controls {
   object-fit: cover;
 }
 .site-logo-link:hover .site-logo { opacity: .88; }
-@media (max-width: 860px) {
+@media (max-width: 767px) {
   .study-header { padding-left: 0; }
   .site-logo-link { position: static; width: 60px; height: 60px; margin-bottom: 8px; }
 }
@@ -1266,10 +1266,10 @@ html[data-theme="dark"] .graph-viewport .bulk-visibility-controls {
   transform: translateX(-40px);
   pointer-events: none;
 }
-@media (min-width: 1360px) {
+@media (min-width: 768px) {
   .study-app.is-rail-collapsed .study-layout { grid-template-columns: 0 minmax(0, 1fr); }
 }
-@media (max-width: 1359px) {
+@media (max-width: 767px) {
   .rail-collapse-toggle { display: none; }
 }
 
@@ -1300,8 +1300,8 @@ body.is-detail-focus .bulk-visibility-controls { display: none; }
 /* 田字工作台：整屏左侧区域（右侧已让位阅读栏）视为整体，四格居中排布并留出呼吸空间 */
 .detail-grid {
   position: absolute;
-  /* 顶留避让页头，底留避让提问栏 */
-  inset: 112px 28px 220px 28px;
+  /* 顶留避让页头（留出间距不贴顶），底留避让提问栏 */
+  inset: 80px 28px 200px 28px;
   display: grid;
   /* 树形排版：源卡顶部居中，三张模块卡在下方三列（中间空白平均竖切三份） */
   grid-template-areas:
