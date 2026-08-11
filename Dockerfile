@@ -16,7 +16,7 @@ RUN apt-get update \
     && pip install --no-cache-dir gunicorn \
     # 可编辑安装：包留在 /app/src，BASE_DIR 正确解析为 /app
     # （非可编辑安装会把包装进 site-packages，导致 BASE_DIR 错算、库写进容器内层）
-    && pip install --no-cache-dir -e .
+    && pip install --no-cache-dir -e '.[monitoring]'
 
 # 方法论：知识树规则（app 运行时会读取）
 COPY methodology ./methodology

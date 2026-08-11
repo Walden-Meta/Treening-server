@@ -53,6 +53,29 @@ KEEP_IMAGES=5 ./deploy.sh  # 本地/远端各保留 5 个版本（默认 3）
 - 健康检查通过 `docker compose` healthcheck（含 SQLite 只读探测），失败会直接提示回滚命令。
 - 回滚先加载不可变的 `.img.gz`（保证与发布时完全一致），再 `docker tag` 到 `latest` 重建。
 
+## 数据备份与恢复演练
+
+`ops/` 目录存放数据库备份/恢复脚本（安装到服务器 `/root/` 并配 cron）：
+
+```bash
+# 安装（已内置在脚本注释里；服务器 cron：每天 3 点执行）
+cp ops/backup.sh /root/treening-backup.sh
+cp ops/restore.sh /root/treening-restore.sh
+0 3 * * * bash /root/treening-backup.sh >> /var/log/treening-backup.log 2>&1
+```
+
+- `backup.sh`：**WAL 一致性快照**（sqlite 在线备份 API，不用 cp——避免半写状态）→ `integrity_check` 校验 → gzip → 推 GitHub 私有仓 `Walden-Meta/Treening-backup`（异机冗余）
+- `restore.sh --drill`：非破坏式恢复演练（默认模式），把最新备份恢复到临时目录、校验完整性并对比用户数
+- `restore.sh`：真实灾难恢复——停容器 → 备份当前库 → 还原 → 启动 → 健康检查
+
+> 原则：**能备份 ≠ 能恢复**。上线前必须跑一次 `restore.sh --drill`，且每季度演练一次。
+
+## 错误监控（Sentry）
+
+- 代码与镜像已就绪：`_init_sentry()` 在 `TREENING_SENTRY_DSN` 非空时自动启用；Dockerfile 已含 `sentry-sdk`
+- **激活只需两步**：① 在 [sentry.io](https://sentry.io) 建项目拿 DSN → ② 服务器 `.env` 写 `TREENING_SENTRY_DSN=https://xxx@sentry.io/yyy`，然后 `./deploy.sh`
+- 配套建议：加一个外部 uptime 探针（如 UptimeRobot 免费版），覆盖"站点整体挂掉"而 Sentry 只管"应用报错"的盲区
+
 ## 敏感配置与威胁边界
 
 - **API Key / SMTP 授权码**：放在服务器 `.env`（`chmod 600`）或应用内 `settings.json`，**不要提交到仓库**。
