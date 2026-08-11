@@ -17,6 +17,33 @@ class TreeProviderError(RuntimeError):
     """Expected provider failure that is safe to show as a generic API error."""
 
 
+# 可自动重试的错误消息特征（超时、连接失败、429、5xx）。
+# 鉴权/模型名/余额等 4xx 与「空回答/坏响应」不可重试——重试只会重复失败。
+_RETRYABLE_MESSAGE_PREFIXES = (
+    "provider timeout",
+    "provider request failed",
+)
+
+
+def is_retryable_provider_error(exc: Exception) -> bool:
+    """判断 provider 错误是否值得自动重试。
+
+    依据 TreeProviderError 的消息判定：
+    - 超时 / 连接失败 → 可重试；
+    - HTTP 429（限流）或 5xx（服务端瞬态）→ 可重试；
+    - 其余（401/403/404、模型名错误、余额不足、空回答、坏响应）→ 不可重试。
+    """
+    message = str(exc)
+    for prefix in _RETRYABLE_MESSAGE_PREFIXES:
+        if message.startswith(prefix):
+            return True
+    if message.startswith("接口返回 429"):
+        return True
+    if message.startswith("接口返回 5"):
+        return True
+    return False
+
+
 def _is_anthropic_url(url: str) -> bool:
     """按 URL 判断 API 格式：Anthropic Messages 或 OpenAI 兼容。"""
     low = url.lower()

@@ -2450,6 +2450,13 @@
         State.pendingJobs.delete(jobId); removeLoading(jobId); return;
       }
       if (job.status === "pending" || job.status === "running") { State.pendingJobs.set(jobId, true); window.setTimeout(() => pollJob(jobId, generation), 700); return; }
+      // 失败但标记为可重试：任务会在退避后自动重跑，前端继续轮询等待最终结果
+      if (job.status === "failed" && job.retryable) {
+        State.pendingJobs.set(jobId, true); removeLoading(jobId);
+        DOM.composerHint.textContent = "学习服务暂时波动，正在自动重试……";
+        window.setTimeout(() => pollJob(jobId, generation), 2000);
+        return;
+      }
       State.pendingJobs.delete(jobId); removeLoading(jobId); setQuota(job.quota);
       if (job.status === "completed") {
         const userNode = nodeById(job.user_node_id);
@@ -2468,7 +2475,8 @@
           metadata: job.assistant_node?.metadata || {},
         });
         setComposerActive(false);  // 回答长出后收起输入框
-      } else appendError(job.error === "quiz provider is not configured" ? "学习服务尚未配置，请先设置 TREENING_API_KEY。" : "这次学习请求没有完成，可以稍后重试。");
+      } else appendError(job.error === "quiz provider is not configured" ? "学习服务尚未配置，请先设置 TREENING_API_KEY。" : "这次学习请求最终失败，可以在「学习任务」里查看原因。");
+      DOM.composerHint.textContent = "Enter 发送 · Shift + Enter 换行";
       DOM.sendButton.disabled = false;
     } catch (error) {
       State.pendingJobs.delete(jobId); removeLoading(jobId);
@@ -2484,7 +2492,8 @@
     clearDetailLayer();
     DOM.sendButton.disabled = true; DOM.composerHint.textContent = "请求已进入学习队列……";
     try {
-      const result = await API.ask({ session_id: State.sessionId, parent_node_id: branchParentId(), interaction_type: State.interactionType, question });
+      const idempotency_key = (crypto.randomUUID && crypto.randomUUID()) || ("k-" + Date.now() + "-" + Math.random().toString(36).slice(2, 10));
+      const result = await API.ask({ session_id: State.sessionId, parent_node_id: branchParentId(), interaction_type: State.interactionType, question, idempotency_key });
       if (!State.sessionId && result.session_id) {
         State.sessionId = result.session_id;
         activateFoldSession(State.sessionId);

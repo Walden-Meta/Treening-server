@@ -389,6 +389,90 @@
     });
   }
 
+  // ── 学习任务（失败 / 等待重试）──
+
+  const jobsBody = $("#jobs-table-body");
+  const jobsCount = $("#jobs-count");
+  const jobsError = $("#jobs-error");
+  const JOB_STATUS_LABELS = {
+    failed: "失败",
+    pending: "等待中",
+    running: "处理中",
+    completed: "已完成",
+  };
+
+  async function loadJobs() {
+    const d = await api("/jobs");
+    jobsCount.textContent = `共 ${d.jobs.length} 条`;
+    jobsBody.textContent = "";
+    if (!d.jobs.length) {
+      const row = document.createElement("tr");
+      const td = document.createElement("td");
+      td.colSpan = 7;
+      td.style.color = "var(--quiz-faint)";
+      td.textContent = "暂无失败任务（学习请求的自动重试正在后台进行，无需人工干预）";
+      row.append(td);
+      jobsBody.append(row);
+      return;
+    }
+    for (const j of d.jobs) {
+      const row = document.createElement("tr");
+      const retrying = j.retryable === 1;
+      const statusText = retrying ? "待重试" : "已失败";
+      const attempts = `${j.attempts ?? 1}/${j.max_attempts ?? "…"} 次`;
+      const err = String(j.error || "");
+      const cells = [
+        fmtTime(j.created_at),
+        j.user_name || "已删除用户",
+        j.session_title || "（无主题）",
+        statusText,
+        attempts,
+        err,
+      ];
+      for (const [i, text] of cells.entries()) {
+        const td = document.createElement("td");
+        td.textContent = text;
+        if (i === 5) td.style.color = "var(--quiz-faint)";
+        row.append(td);
+      }
+      const actionTd = document.createElement("td");
+      if (!retrying) {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "mini-btn";
+        btn.textContent = "重放";
+        btn.addEventListener("click", async () => {
+          btn.disabled = true;
+          jobsError.textContent = "";
+          try {
+            await api(`/jobs/${encodeURIComponent(j.id)}/retry`, "POST");
+            await loadJobs();
+          } catch (err) {
+            jobsError.textContent = err.message;
+            btn.disabled = false;
+          }
+        });
+        actionTd.append(btn);
+      } else {
+        actionTd.style.color = "var(--quiz-faint)";
+        actionTd.textContent = "自动重试中";
+      }
+      row.append(actionTd);
+      jobsBody.append(row);
+    }
+  }
+
+  function bindJobs() {
+    $("#jobs-refresh").addEventListener("click", async () => {
+      jobsError.textContent = "";
+      try {
+        await loadJobs();
+      } catch (err) {
+        jobsError.textContent = err.message;
+      }
+    });
+  }
+
   async function init() {
     try {
       const me = await fetch("/api/auth/me").then((r) => r.json());
@@ -405,9 +489,12 @@
       await loadSmtp();
       bindAudit();
       await loadAudit();
-      // 每 30 秒自动刷新用户列表，保持在线/离线状态新鲜
+      bindJobs();
+      await loadJobs();
+      // 每 30 秒自动刷新用户列表与任务列表，保持在线/重试状态新鲜
       setInterval(() => {
         renderUsers().catch(() => {});
+        loadJobs().catch(() => {});
       }, 30000);
     } catch (_) {
       // 网络或权限问题：回登录页重试

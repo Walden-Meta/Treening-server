@@ -337,6 +337,40 @@ def get_audit():
     return jsonify({"ok": True, "entries": _store().list_audit(limit=200)})
 
 
+@admin_bp.route("/jobs", methods=["GET"])
+def list_failed_jobs():
+    """失败/重试等待中的学习任务（含用户名、主题、错误、尝试次数）。"""
+    guard = _admin_required()
+    if guard:
+        return guard
+    return jsonify({"ok": True, "jobs": _store().list_failed_jobs(limit=50)})
+
+
+@admin_bp.route("/jobs/<job_id>/retry", methods=["POST"])
+def retry_failed_job(job_id: str):
+    """手动重放一个失败任务：重置为 pending 并重新提交执行。"""
+    guard = _admin_required()
+    if guard:
+        return guard
+    store = _store()
+    job = store.get_any_job(job_id)
+    if not job:
+        return jsonify({"ok": False, "error": "任务不存在"}), 404
+    if not store.requeue_failed_job(job_id):
+        return jsonify({"ok": False, "error": "只有失败状态的任务可以重放"}), 409
+    _audit("job.retry", target=job_id, detail="重放失败任务")
+    try:
+        from .api import _executor, _run_job, _submit_lock
+
+        app = current_app._get_current_object()
+        with _submit_lock:
+            _executor.submit(_run_job, app, job_id, job["user_id"])
+    except RuntimeError:
+        # 执行器已关闭（进程退出窗口）：任务已置回 pending，下次启动会恢复
+        current_app.logger.warning("executor unavailable, job %s left as pending", job_id)
+    return jsonify({"ok": True})
+
+
 # ── SMTP 发信配置（用于忘记密码发邮件） ──
 
 def _mask_email(email: str) -> str:

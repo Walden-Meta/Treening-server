@@ -20,6 +20,13 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _after_seconds(seconds: int) -> str:
+    """now + seconds 的 ISO 时间（用于重试排程 / 租约到期）。"""
+    from datetime import timedelta
+
+    return (datetime.now(timezone.utc) + timedelta(seconds=seconds)).isoformat()
+
+
 def _new_id() -> str:
     return uuid.uuid4().hex
 
@@ -268,6 +275,27 @@ class TreeStore:
                 conn.execute(
                     "ALTER TABLE quiz_jobs ADD COLUMN ip_address TEXT NOT NULL DEFAULT ''"
                 )
+            # 任务可靠性列：幂等键 / 尝试次数 / 可重试 / 租约过期 / 下次尝试时间 / 完成权
+            _JOB_RELIABILITY_COLUMNS = {
+                "idempotency_key": "TEXT",
+                "attempts": "INTEGER NOT NULL DEFAULT 1",
+                "retryable": "INTEGER NOT NULL DEFAULT 0",
+                "lease_expires_at": "TEXT NOT NULL DEFAULT ''",
+                "next_attempt_at": "TEXT NOT NULL DEFAULT ''",
+                "completion_owner": "TEXT NOT NULL DEFAULT ''",
+            }
+            for col, col_type in _JOB_RELIABILITY_COLUMNS.items():
+                if col not in existing_columns:
+                    conn.execute(
+                        f"ALTER TABLE quiz_jobs ADD COLUMN {col} {col_type}"
+                    )
+            conn.execute(
+                """
+                CREATE UNIQUE INDEX IF NOT EXISTS ux_quiz_jobs_idempotency
+                    ON quiz_jobs(user_id, idempotency_key)
+                    WHERE idempotency_key IS NOT NULL AND idempotency_key != ''
+                """
+            )
             user_columns = {
                 row["name"]
                 for row in conn.execute("PRAGMA table_info(users)").fetchall()
@@ -319,34 +347,35 @@ class TreeStore:
 
     @staticmethod
     def _recover_incomplete_jobs(conn: sqlite3.Connection) -> None:
-        """Do not leave quota reservations stuck after a server restart."""
+        """Do not leave quota reservations stuck after a server restart.
+
+        重启后把 pending/running 任务标记为「可重试失败」：保留配额预留，
+        由清扫器按 next_attempt_at 重新领取重跑（Worker 崩溃后自动恢复）。
+        """
         rows = conn.execute(
             """
-            SELECT user_id, ip_address FROM quiz_jobs
+            SELECT id, user_id, ip_address, attempts FROM quiz_jobs
             WHERE status IN ('pending', 'running')
             """
         ).fetchall()
         if not rows:
             return
         now = _now()
-        conn.execute(
-            """
-            UPDATE quiz_jobs
-            SET status = 'failed', error = 'server restarted', updated_at = ?
-            WHERE status IN ('pending', 'running')
-            """,
-            (now,),
-        )
-        window = datetime.now(timezone.utc).date().isoformat()
+        retry_delay = 15  # 秒：重启恢复的首次重试间隔（等清扫器下一轮领取）
         for row in rows:
-            for scope, key in (("user", row["user_id"]), ("ip", row["ip_address"])):
-                conn.execute(
-                    """
-                    UPDATE quiz_usage SET used = MAX(used - 1, 0)
-                    WHERE scope = ? AND scope_key = ? AND window_start = ?
-                    """,
-                    (scope, key, window),
-                )
+            attempts = int(row["attempts"] or 1)
+            conn.execute(
+                """
+                UPDATE quiz_jobs
+                SET status = 'failed', retryable = 1,
+                    error = 'server restarted',
+                    next_attempt_at = ?,
+                    lease_expires_at = '',
+                    attempts = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (_after_seconds(retry_delay), attempts + 1, now, row["id"]),
+            )
 
     @staticmethod
     def _row_to_dict(row: sqlite3.Row | None) -> dict[str, Any] | None:
@@ -908,31 +937,61 @@ class TreeStore:
         parent_id: str | None,
         interaction_type: str,
         question: str,
+        idempotency_key: str = "",
     ) -> dict[str, Any]:
         job_id = _new_id()
         now = _now()
-        with self._connection() as conn:
-            conn.execute(
-                """
-                INSERT INTO quiz_jobs(
-                    id, session_id, user_id, ip_address, user_node_id, parent_id,
-                    interaction_type, question, status, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)
-                """,
-                (
-                    job_id,
-                    session_id,
-                    user_id,
-                    ip_address,
-                    user_node_id,
-                    parent_id,
-                    interaction_type,
-                    question,
-                    now,
-                    now,
-                ),
-            )
+        try:
+            with self._connection() as conn:
+                conn.execute(
+                    """
+                    INSERT INTO quiz_jobs(
+                        id, session_id, user_id, ip_address, user_node_id, parent_id,
+                        interaction_type, question, status, idempotency_key,
+                        created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)
+                    """,
+                    (
+                        job_id,
+                        session_id,
+                        user_id,
+                        ip_address,
+                        user_node_id,
+                        parent_id,
+                        interaction_type,
+                        question,
+                        idempotency_key or None,
+                        now,
+                        now,
+                    ),
+                )
+        except sqlite3.IntegrityError:
+            # 同 user + 同幂等键：说明是重复提交，返回 None 由调用方走幂等命中逻辑
+            return None
         return self.get_job(job_id, user_id)  # type: ignore[return-value]
+
+    def get_any_job(self, job_id: str) -> dict[str, Any] | None:
+        """管理端：按任务 id 直接查（不校验 user 归属）。"""
+        with self._connection() as conn:
+            row = conn.execute(
+                "SELECT * FROM quiz_jobs WHERE id = ?", (job_id,)
+            ).fetchone()
+        return self._row_to_dict(row)
+
+    def get_job_by_idempotency(self, user_id: str, idempotency_key: str) -> dict[str, Any] | None:
+        """按幂等键查已有任务（用于去重：同键只处理一次，不重复扣费/不重复回答）。"""
+        if not idempotency_key:
+            return None
+        with self._connection() as conn:
+            row = conn.execute(
+                """
+                SELECT * FROM quiz_jobs
+                WHERE user_id = ? AND idempotency_key = ?
+                LIMIT 1
+                """,
+                (user_id, idempotency_key),
+            ).fetchone()
+        return self._row_to_dict(row)
 
     def get_job(self, job_id: str, user_id: str) -> dict[str, Any] | None:
         with self._connection() as conn:
@@ -948,6 +1007,11 @@ class TreeStore:
             "answer",
             "assistant_node_id",
             "error",
+            "attempts",
+            "retryable",
+            "lease_expires_at",
+            "next_attempt_at",
+            "completion_owner",
         }
         updates = {key: value for key, value in changes.items() if key in allowed}
         if not updates:
@@ -959,6 +1023,101 @@ class TreeStore:
                 f"UPDATE quiz_jobs SET {assignments} WHERE id = ? AND user_id = ?",
                 (*updates.values(), job_id, user_id),
             )
+
+    def begin_completion(self, job_id: str, user_id: str, worker_id: str) -> bool:
+        """抢唯一「完成权」：只有第一个拿到完成权的执行者能插入回答节点。
+
+        防止租约过期后清扫器重新领取、新旧 worker 同时完成同一任务时
+        生成两个回答节点。rowcount == 1 表示本 worker 拿到完成权。
+        """
+        with self._connection() as conn:
+            cur = conn.execute(
+                """
+                UPDATE quiz_jobs
+                SET completion_owner = ?, updated_at = ?
+                WHERE id = ? AND user_id = ?
+                  AND status = 'running'
+                  AND (completion_owner IS NULL OR completion_owner = '')
+                """,
+                (worker_id, _now(), job_id, user_id),
+            )
+            return cur.rowcount == 1
+
+    def sweep_due_jobs(self) -> list[dict[str, Any]]:
+        """清扫器：领取到期任务，返回 [(job_id, user_id), ...] 交由执行器重跑。
+
+        两类到期任务：
+        - retry_wait：failed + retryable + next_attempt_at 已到 → 自动重试；
+        - 租约过期：running 且 lease_expires_at 已过 → worker 疑似崩溃，重新领取。
+        领取时原子地把状态改回 pending，避免两个执行者同时处理同一任务。
+        """
+        now = _now()
+        due: list[dict[str, Any]] = []
+        with self._connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT id, user_id FROM quiz_jobs
+                WHERE (status = 'failed' AND retryable = 1 AND next_attempt_at != '' AND next_attempt_at <= ?)
+                   OR (status = 'running' AND lease_expires_at != '' AND lease_expires_at <= ?)
+                """,
+                (now, now),
+            ).fetchall()
+            for row in rows:
+                job_id, user_id = row["id"], row["user_id"]
+                cur = conn.execute(
+                    """
+                    UPDATE quiz_jobs
+                    SET status = 'pending',
+                        -- 重新领取等同从头执行：清掉完成权，让新 worker 有权插入回答节点
+                        completion_owner = '', updated_at = ?
+                    WHERE id = ? AND user_id = ?
+                    """,
+                    (now, job_id, user_id),
+                )
+                if cur.rowcount == 1:
+                    due.append({"id": job_id, "user_id": user_id})
+        return due
+
+    def list_failed_jobs(self, limit: int = 50) -> list[dict[str, Any]]:
+        """管理端：最近失败/重试等待中的任务（含操作人名、主题标题）。"""
+        with self._connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT j.*, u.username AS user_name,
+                       COALESCE(s.title, '') AS session_title
+                FROM quiz_jobs j
+                LEFT JOIN users u ON u.id = j.user_id
+                LEFT JOIN quiz_sessions s ON s.id = j.session_id
+                WHERE j.status = 'failed'
+                ORDER BY j.created_at DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def requeue_failed_job(self, job_id: str) -> bool:
+        """管理端：手动重放一个失败任务（重置为 pending，等执行器重跑）。"""
+        with self._connection() as conn:
+            cur = conn.execute(
+                """
+                UPDATE quiz_jobs
+                SET status = 'pending', retryable = 0, error = NULL,
+                    next_attempt_at = '', lease_expires_at = '',
+                    completion_owner = '', updated_at = ?
+                WHERE id = ? AND status = 'failed'
+                """,
+                (_now(), job_id),
+            )
+            return cur.rowcount == 1
+
+    def global_active_job_count(self) -> int:
+        """全局在途任务数（pending+running），用于全局并发上限。"""
+        with self._connection() as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) AS count FROM quiz_jobs WHERE status IN ('pending', 'running')"
+            ).fetchone()
+        return int(row["count"] if row else 0)
 
     def active_job_count(self, user_id: str) -> int:
         with self._connection() as conn:

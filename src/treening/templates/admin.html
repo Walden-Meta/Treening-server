@@ -133,6 +133,22 @@
   </section>
 
   <section class="admin-card">
+    <h2 style="display:inline-block;margin-right:10px">学习任务</h2>
+    <button class="mini-btn" id="jobs-refresh" type="button">刷新</button>
+    <span id="jobs-count" style="font-size:12px;color:var(--quiz-faint);margin-left:8px"></span>
+    <p class="hint">最近 50 条失败或等待重试的学习任务。可重试的失败会由系统自动重试（指数退避）；确认已彻底失败的任务可手动重放。</p>
+    <div style="overflow-x:auto">
+      <table class="users">
+        <thead>
+          <tr><th>时间</th><th>用户</th><th>主题</th><th>状态</th><th>尝试</th><th>错误</th><th>操作</th></tr>
+        </thead>
+        <tbody id="jobs-table-body"></tbody>
+      </table>
+    </div>
+    <p class="form-error" id="jobs-error" role="alert"></p>
+  </section>
+
+  <section class="admin-card">
     <h2 style="display:inline-block;margin-right:10px">操作审计</h2>
     <button class="mini-btn" id="audit-refresh" type="button">刷新</button>
     <span id="audit-count" style="font-size:12px;color:var(--quiz-faint);margin-left:8px"></span>
@@ -148,6 +164,6 @@
     <p class="form-error" id="audit-error" role="alert"></p>
   </section>
 </main>
-<script src="/static/js/admin.js?v=20260811-1" defer></script>
+<script src="/static/js/admin.js?v=20260811-2" defer></script>
 </body>
 </html>

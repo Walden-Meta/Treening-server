@@ -7,10 +7,13 @@ from __future__ import annotations
 
 import logging
 import math
+import random
 import re
 import threading
+import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timedelta, timezone
 from io import BytesIO
 from typing import Any
 
@@ -19,7 +22,7 @@ from flask import Blueprint, current_app, jsonify, request, send_file, session
 from ..config import config, layout_prefs_for
 from ..services.exporter import render_export
 from ..services.methodology import Methodology
-from ..services.provider import TreeProvider, TreeProviderError
+from ..services.provider import TreeProvider, TreeProviderError, is_retryable_provider_error
 from ..services.store import TreeStore
 
 logger = logging.getLogger(__name__)
@@ -137,14 +140,41 @@ def _session_payload(session_id: str, user_id: str) -> dict[str, Any]:
     }
 
 
+def _worker_id() -> str:
+    """执行线程的身份标识（租约/完成权归属）。"""
+    return f"{threading.current_thread().name}:{uuid.uuid4().hex[:6]}"
+
+
+def _lease_expiry() -> str:
+    """本次执行的租约到期时间。"""
+    return _after_iso(int(config.JOB_LEASE_TTL))
+
+
+def _retry_delay_seconds(attempts: int) -> int:
+    """指数退避 + 随机抖动：min(base * 2^(attempts-1), max) * (0.5 + rand())。
+    attempts 为已完成尝试次数（重试排程时 = 当前 attempts）。"""
+    base = max(1, int(config.JOB_RETRY_BASE_DELAY))
+    cap = max(base, int(config.JOB_RETRY_MAX_DELAY))
+    exponential = min(base * (2 ** max(0, attempts - 1)), cap)
+    return max(1, int(exponential * (0.5 + random.random())))
+
+
+def _after_iso(seconds: int) -> str:
+    """now + seconds 的 ISO 时间（租约到期 / 重试排程）。"""
+    return (datetime.now(timezone.utc) + timedelta(seconds=seconds)).isoformat()
+
+
 def _run_job(app, job_id: str, user_id: str) -> None:
-    """在线程池中执行一次 provider 调用。"""
+    """在线程池中执行一次 provider 调用（带租约 / 自动重试 / 幂等完成）。"""
     with app.app_context():
         store = _store()
         job = store.get_job(job_id, user_id)
         if not job or job["status"] not in {"pending", "running"}:
             return
-        store.update_job(job_id, user_id, status="running")
+        current_attempt = int(job.get("attempts") or 1)
+        worker = _worker_id()
+        # 领取租约：标记 running 并刷新到期时间（清扫器据此刻收回挂起任务）
+        store.update_job(job_id, user_id, status="running", lease_expires_at=_lease_expiry())
         try:
             path = store.get_path(job["session_id"], user_id, job["user_node_id"])
             path_ids = {node["id"] for node in path}
@@ -184,6 +214,21 @@ def _run_job(app, job_id: str, user_id: str) -> None:
                 job["user_node_id"],
                 user_metadata,
             )
+            # 幂等完成：只有抢到「完成权」的执行者才能插入回答节点，
+            # 防止租约过期重新领取后新旧 worker 同时完成生成重复节点。
+            if not store.begin_completion(job_id, user_id, worker):
+                # 赢家已插入回答节点；输家把 job 收尾为 completed，
+                # 否则停在 running 会被清扫器无限重新领取（租约循环）。
+                logger.warning("Tree job %s already completed by another worker, skip", job_id)
+                store.update_job(
+                    job_id,
+                    user_id,
+                    status="completed",
+                    retryable=0,
+                    lease_expires_at="",
+                    next_attempt_at="",
+                )
+                return
             assistant_metadata = {
                 "job_id": job_id,
                 "model": model,
@@ -209,26 +254,86 @@ def _run_job(app, job_id: str, user_id: str) -> None:
                 status="completed",
                 answer=answer,
                 assistant_node_id=assistant["id"],
+                # 重试成功后清掉重试标记，避免「已完成但 retryable=1」的脏状态
+                retryable=0,
+                next_attempt_at="",
             )
         except TreeProviderError as exc:
-            if config.QUOTA_ENABLED:
-                store.release_quota(user_id, job["ip_address"])
-            store.update_job(
-                job_id,
-                user_id,
-                status="failed",
-                error=str(exc),
-            )
+            if is_retryable_provider_error(exc):
+                next_attempt = current_attempt + 1
+                if next_attempt <= int(config.JOB_MAX_ATTEMPTS):
+                    # 可重试 + 未超上限：排程重试，保留配额预留（重试继续用同一预留）
+                    store.update_job(
+                        job_id,
+                        user_id,
+                        status="failed",
+                        error=str(exc),
+                        retryable=1,
+                        attempts=next_attempt,
+                        next_attempt_at=_after_iso(_retry_delay_seconds(current_attempt)),
+                        lease_expires_at="",
+                    )
+                    return
+                # 超过重试上限：按最终失败处理（释放配额）
+                _finalize_failed(store, job_id, user_id, job, str(exc))
+            else:
+                _finalize_failed(store, job_id, user_id, job, str(exc))
         except Exception:
             logger.exception("Tree job %s failed", job_id)
-            if config.QUOTA_ENABLED:
-                store.release_quota(user_id, job["ip_address"])
-            store.update_job(
-                job_id,
-                user_id,
-                status="failed",
-                error="unexpected tree processing error",
-            )
+            # 未预期异常按最终失败处理（不自动重试，避免掩盖 bug 反复扣 Provider 费）
+            _finalize_failed(store, job_id, user_id, job, "unexpected tree processing error")
+
+
+def _finalize_failed(
+    store: TreeStore,
+    job_id: str,
+    user_id: str,
+    job: dict[str, Any],
+    error: str,
+) -> None:
+    """最终失败：标记 failed + 释放配额预留（只有最终失败才归还）。"""
+    if config.QUOTA_ENABLED:
+        store.release_quota(user_id, job["ip_address"])
+    store.update_job(
+        job_id,
+        user_id,
+        status="failed",
+        error=error,
+        retryable=0,
+        lease_expires_at="",
+        next_attempt_at="",
+    )
+
+
+def _sweep_tick(app) -> int:
+    """清扫器单轮：领取到期重试/租约过期任务并重新提交，返回领取数。"""
+    due = _store().sweep_due_jobs()
+    for row in due:
+        try:
+            with _submit_lock:
+                _executor.submit(_run_job, app, row["id"], row["user_id"])
+        except RuntimeError:
+            logger.warning("executor shut down, job %s not resubmitted", row["id"])
+            break
+    return len(due)
+
+
+def start_job_sweeper(app) -> None:
+    """启动后台清扫器：每 N 秒领取到期重试与租约过期的挂起任务。"""
+
+    def _loop() -> None:
+        interval = int(config.JOB_SWEEPER_INTERVAL)
+        while True:
+            time.sleep(interval)
+            try:
+                with app.app_context():
+                    _sweep_tick(app)
+            except Exception:
+                logger.exception("job sweeper tick failed")
+
+    thread = threading.Thread(target=_loop, daemon=True, name="tree-job-sweeper")
+    thread.start()
+    logger.info("job sweeper started (interval=%ss)", config.JOB_SWEEPER_INTERVAL)
 
 
 # ── 会话 ──
@@ -429,6 +534,28 @@ def delete_node(session_id: str, node_id: str):
 
 # ── 提问与任务 ──
 
+def _idempotent_response(job: dict[str, Any], store: TreeStore) -> Any:
+    """幂等命中：返回既有任务的状态，不建新节点、不重复扣配额。
+
+    前端拿到 job_id 后照常轮询 /jobs/<id>：进行中→继续等，已完成→渲染回答。
+    """
+    job_id = job.get("id") or ""
+    user_id = job.get("user_id") or _identity()
+    return jsonify({
+        "ok": True,
+        "job_id": job_id,
+        "session_id": job.get("session_id") or "",
+        "status": job.get("status") or "failed",
+        "user_node_id": job.get("user_node_id") or "",
+        "assistant_node_id": job.get("assistant_node_id") or "",
+        "answer": job.get("answer") or "",
+        "error": job.get("error") or "",
+        "retryable": bool(job.get("retryable")),
+        "idempotent": True,
+        "quota": _quota(user_id, _client_ip()),
+    })
+
+
 @api_bp.route("/ask", methods=["POST"])
 def ask():
     user_id = _identity()
@@ -438,6 +565,7 @@ def ask():
     session_id = data.get("session_id") or session.get("tree_session_id")
     parent_id = data.get("parent_node_id")
     interaction_type = data.get("interaction_type", "question")
+    idempotency_key = data.get("idempotency_key")
 
     if not isinstance(question, str) or not question.strip():
         return jsonify({"error": "问题不能为空", "code": "tree_question_required"}), 400
@@ -446,12 +574,24 @@ def ask():
         return jsonify({"error": "问题过长，请缩短后重试", "code": "tree_question_too_long"}), 413
     if interaction_type not in INTERACTION_TYPES:
         return jsonify({"error": "不支持的交互类型", "code": "tree_interaction_invalid"}), 400
+    if idempotency_key is not None and (
+        not isinstance(idempotency_key, str)
+        or not idempotency_key.strip()
+        or len(idempotency_key) > 100
+    ):
+        return jsonify({"error": "幂等键格式不正确", "code": "tree_idempotency_invalid"}), 400
     user_cfg = _user_config()
     api_key = _model_config_for(user_cfg)[0]
     if not api_key:
         return jsonify({"error": "学习服务尚未配置", "code": "tree_provider_unconfigured"}), 503
 
     store = _store()
+
+    # 幂等：同 user + 同键的重复提交直接返回既有任务，不再建节点/不扣配额。
+    if idempotency_key:
+        existing = store.get_job_by_idempotency(user_id, idempotency_key)
+        if existing:
+            return _idempotent_response(existing, store)
     if not isinstance(session_id, str) or not store.get_session(session_id, user_id):
         quiz_session = store.create_session(user_id)
         session_id = quiz_session["id"]
@@ -485,6 +625,8 @@ def ask():
 
     if store.active_job_count(user_id) >= int(config.MAX_INFLIGHT):
         return jsonify({"error": "已有学习请求处理中，请稍后", "code": "tree_busy"}), 429
+    if store.global_active_job_count() >= int(config.MAX_GLOBAL_INFLIGHT):
+        return jsonify({"error": "学习服务繁忙，请稍后再试", "code": "tree_busy_global"}), 429
 
     if not config.QUOTA_ENABLED:
         reservation = {"allowed": True, "remaining": None, "unlimited": True}
@@ -518,7 +660,14 @@ def ask():
             parent_id,
             interaction_type,
             question,
+            idempotency_key=idempotency_key,
         )
+        if job is None:
+            # 并发下同幂等键被另一请求先写入：释放刚预留的配额，返回既有任务
+            if config.QUOTA_ENABLED:
+                store.release_quota(user_id, ip_address)
+            existing = store.get_job_by_idempotency(user_id, idempotency_key)
+            return _idempotent_response(existing or {"id": "", "status": "failed"}, store)
         app = current_app._get_current_object()
         with _submit_lock:
             _executor.submit(_run_job, app, job["id"], user_id)
@@ -572,6 +721,9 @@ def get_job(job_id: str):
         "status": job["status"],
         "answer": job["answer"],
         "error": job["error"],
+        "retryable": bool(job.get("retryable")),
+        "attempts": int(job.get("attempts") or 1),
+        "next_attempt_at": job.get("next_attempt_at") or "",
         "assistant_node_id": job["assistant_node_id"],
         "assistant_node": assistant_node,
         "user_node": user_node,

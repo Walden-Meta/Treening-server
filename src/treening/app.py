@@ -218,6 +218,12 @@ def create_app() -> Flask:
     # 日志处理器配好后再启用 Sentry，否则「Sentry 已启用」的 INFO 行会被丢
     _init_sentry()
 
+    # 后台任务清扫器：领取到期自动重试与租约过期的挂起任务。
+    # 测试/嵌入式场景可设 TREENING_JOB_SWEEPER_ENABLED=false 关闭。
+    if config.JOB_SWEEPER_ENABLED and not app.testing:
+        from .blueprints.api import start_job_sweeper
+        start_job_sweeper(app)
+
     @app.before_request
     def _request_start():
         """为每个请求生成 request_id 并记录开始时间，用于日志关联与耗时统计。"""

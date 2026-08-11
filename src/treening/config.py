@@ -109,6 +109,20 @@ class Config:
         self.MAX_CONTEXT_MESSAGES: int = int(_env("MAX_CONTEXT_MESSAGES", "12"))
         self.MAX_INFLIGHT: int = int(_env("MAX_INFLIGHT", "2"))
 
+        # ── 任务可靠性（重试 / 租约 / 并发上限） ──
+        # 可重试的 provider 错误（超时/连接/5xx/429）最多自动重试次数（第 1 次为首次执行）
+        self.JOB_MAX_ATTEMPTS: int = int(_env("JOB_MAX_ATTEMPTS", "3"))
+        # 指数退避基数/上限（秒），每次重试 = min(base * 2^(attempts-1), max) * 随机抖动
+        self.JOB_RETRY_BASE_DELAY: int = int(_env("JOB_RETRY_BASE_DELAY", "10"))
+        self.JOB_RETRY_MAX_DELAY: int = int(_env("JOB_RETRY_MAX_DELAY", "120"))
+        # 任务租约 TTL（秒）：running 超过该时长未完成且无心跳 → 视为 worker 崩溃，由清扫器重新领取
+        self.JOB_LEASE_TTL: int = int(_env("JOB_LEASE_TTL", "180"))
+        # 后台清扫器轮询间隔（秒）；设为 0 或 false 关闭（测试用）
+        self.JOB_SWEEPER_INTERVAL: int = int(_env("JOB_SWEEPER_INTERVAL", "10"))
+        self.JOB_SWEEPER_ENABLED: bool = _env("JOB_SWEEPER_ENABLED", "true").lower() in {"1", "true", "yes"}
+        # 全局在途任务上限（pending+running），防止线程池排队无限积压
+        self.MAX_GLOBAL_INFLIGHT: int = int(_env("MAX_GLOBAL_INFLIGHT", "6"))
+
         # 配额（默认启用；普通用户每人每日默认 20 次，管理员不限，可在管理面板按人覆盖）
         self.QUOTA_ENABLED: bool = _env("QUOTA_ENABLED", "true").lower() in {"1", "true", "yes"}
         self.MAX_QUESTIONS: int = int(_env("MAX_QUESTIONS", "20"))
