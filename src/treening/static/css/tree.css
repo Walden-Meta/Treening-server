@@ -1301,7 +1301,7 @@ body.is-detail-focus .bulk-visibility-controls { display: none; }
 .detail-grid {
   position: absolute;
   /* 顶留避让页头（留出间距不贴顶），底留避让提问栏 */
-  inset: 80px 28px 200px 28px;
+  inset: 60px 28px 200px 28px;
   display: grid;
   /* 树形排版：源卡顶部居中，三张模块卡在下方三列（中间空白平均竖切三份） */
   grid-template-areas:
