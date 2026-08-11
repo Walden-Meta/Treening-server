@@ -54,6 +54,8 @@
   let detailLayer = null;
   let detailSourceNodeId = null;
   let detailComposerWasCollapsed = true;
+  // 详情舞台内直接提问：不退出舞台，等回答长出后同步刷新到新回答
+  let detailPendingRebuild = false;
 
   const $ = (selector) => document.querySelector(selector);
   const DOM = {
@@ -779,6 +781,7 @@
 
   function clearDetailLayer() {
     const wasOpen = Boolean(detailLayer);
+    detailPendingRebuild = false;
     detailBuildToken += 1;
     const layer = detailLayer;
     if (layer) {
@@ -2063,16 +2066,23 @@
       assigned.add(node.id);
       const branchChildren = children.get(node.id) || [];
       const nodeGeometry = horizontal.measure(node.id);
-      const x = left + nodeGeometry.rootOffset;
+      const saved = nodeLayout(node);
+      const computedX = left + nodeGeometry.rootOffset;
+      const x = saved ? saved.x : computedX;
+      // 已保存位置（拖拽/缩放过）的节点作为锚点：它的子树整体平移相同偏移，
+      // 保证新长出的子节点对齐到父节点实际显示的位置——否则父节点用存档 x、
+      // 新子节点用计算 x，父子中心错位，连线就歪（"一条线下来都不是直的"）。
+      const dx = x - computedX;
       if (branchChildren.length) {
-        let childLeft = left + nodeGeometry.childInset;
+        let childLeft = left + nodeGeometry.childInset + dx;
         for (let index = 0; index < branchChildren.length; index += 1) {
           const child = branchChildren[index];
           assign(child, childLeft, depth + 1, new Set([...trail, node.id]));
           childLeft += measure(child.id) + siblingGap;
         }
       }
-      Graph.positions.set(node.id, { x, y: layerY.get(depth) || top });
+      const y = saved ? saved.y : (layerY.get(depth) || top);
+      Graph.positions.set(node.id, { x, y });
     };
     for (const root of roots) { assign(root, cursor, 0); cursor += measure(root.id) + rootGap; }
     // Cycles or malformed parent links can leave nodes outside every root.
@@ -2478,8 +2488,18 @@
           content: job.answer || "（没有收到有效回答）",
           metadata: job.assistant_node?.metadata || {},
         });
+        // 详情舞台内提问：回答长出后同步刷新舞台到新回答（源卡/三卡一起换）
+        if (detailPendingRebuild) {
+          detailPendingRebuild = false;
+          const fresh = nodeById(job.assistant_node_id);
+          if (fresh && window.innerWidth >= 1360) buildDetailStage(fresh, { fly: false });
+        }
         setComposerActive(false);  // 回答长出后收起输入框
-      } else appendError(job.error === "quiz provider is not configured" ? "学习服务尚未配置，请先设置 TREENING_API_KEY。" : "这次学习请求最终失败，可以在「学习任务」里查看原因。");
+      } else {
+        // 详情舞台内提问最终失败：退回舞台，错误浮层才能被看到
+        if (detailPendingRebuild) { detailPendingRebuild = false; clearDetailLayer(); }
+        appendError(job.error === "quiz provider is not configured" ? "学习服务尚未配置，请先设置 TREENING_API_KEY。" : "这次学习请求最终失败，可以在「学习任务」里查看原因。");
+      }
       DOM.composerHint.textContent = "Enter 发送 · Shift + Enter 换行";
       DOM.sendButton.disabled = false;
     } catch (error) {
@@ -2492,8 +2512,11 @@
   async function submitMessage(event) {
     event.preventDefault(); const question = DOM.messageInput.value.trim();
     if (!question || State.pendingJobs.size >= 2) return;
-    // 发问即离开详情态：撤掉克隆/三卡/固定提问栏，让树回到自然布局，新卡片才能正常衔接
-    clearDetailLayer();
+    // 详情舞台内提问：保留舞台，回答长出后同步刷新到新回答（不再强制退出）。
+    // 只有不在舞台时才清理（避免舞台与画布双重态）。
+    const wasInDetail = Boolean(detailLayer);
+    if (!wasInDetail) clearDetailLayer();
+    else detailPendingRebuild = true;
     DOM.sendButton.disabled = true; DOM.composerHint.textContent = "请求已进入学习队列……";
     try {
       const idempotency_key = (crypto.randomUUID && crypto.randomUUID()) || ("k-" + Date.now() + "-" + Math.random().toString(36).slice(2, 10));
@@ -2505,6 +2528,8 @@
       setQuota(result.quota); appendNode(result.user_node); DOM.messageInput.value = "";
       State.pendingJobs.set(result.job_id, true); appendLoading(result.job_id); window.setTimeout(() => pollJob(result.job_id, State.sessionGeneration), 200);
     } catch (error) {
+      // 详情内提问失败：退回舞台，让错误提示可见（舞台层会挡住画布错误浮层）
+      if (wasInDetail) clearDetailLayer();
       if (error.code === "tree_branch_slot_used") appendError("这个分支已经用过了。请选择回答下方的另一个出口。");
       else if (error.code === "tree_branch_limit_reached") appendError("这个回答下已经有三个分支，继续学习请回到其他节点。");
       else appendError(error.message || "无法发送这条问题。");
