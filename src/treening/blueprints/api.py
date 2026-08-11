@@ -20,7 +20,11 @@ from typing import Any
 from flask import Blueprint, current_app, jsonify, request, send_file, session
 
 from ..config import config, layout_prefs_for
-from ..persona_presets import persona_presets
+from ..persona_presets import (
+    BUILTIN_PERSONA_KEYS,
+    VALID_PERSONA_KEYS,
+    persona_presets,
+)
 from ..services.exporter import render_export
 from ..services.methodology import Methodology
 from ..services.provider import TreeProvider, TreeProviderError, is_retryable_provider_error
@@ -57,13 +61,68 @@ def _user_config() -> dict[str, Any]:
 
 
 def _clean_persona(value: Any) -> str | None:
-    """清洗树级人设输入：非 str / 空视为「跟随默认」；超长返回 None（调用方回 400）。"""
+    """清洗树级人设输入。
+
+    - 空 / 非 str → ''（= 春宁默认，树的 persona 留空即可）
+    - 合法 key（chunyu / rational / emotional / custom:1..3）→ 原样返回
+    - 旧版存的自由文本 → 保留（前端按「自定义人设」展示，后端可直用）
+    - 超长 → None（调用方回 400）
+    """
     if value is None or not isinstance(value, str):
         return ""
     persona = value.strip()
+    if persona in VALID_PERSONA_KEYS:
+        return persona
     if len(persona) > int(config.PERSONA_MAX_CHARS):
         return None
     return persona
+
+
+def _persona_slots_of(user_cfg: dict[str, Any]) -> list[dict[str, str]]:
+    """用户自定义人设槽位（最多 3 个，可空）。"""
+    slots = user_cfg.get("persona_slots")
+    if not isinstance(slots, list):
+        return []
+    cleaned: list[dict[str, str]] = []
+    for s in slots[:3]:
+        if isinstance(s, dict):
+            cleaned.append({
+                "name": str(s.get("name") or "").strip(),
+                "note": str(s.get("note") or "").strip(),
+                "text": str(s.get("text") or ""),
+            })
+    return cleaned
+
+
+def _resolve_persona_text(persona: Any, user_cfg: dict[str, Any]) -> str:
+    """把人设 key / 空值 / 旧文本 解析成实际给模型的文字。
+
+    - 空 → 全局用户人设兜底 → 系统默认（春宁）
+    - 内置 key → 对应预设文字
+    - custom:N → 用户第 N 个自定义槽位文字（缺失则退回默认）
+    - 其余 → 视为旧版自由文本，原样使用
+    """
+    text = persona.strip() if isinstance(persona, str) else ""
+    if not text:
+        global_persona = user_cfg.get("persona")
+        if isinstance(global_persona, str) and global_persona.strip():
+            return global_persona.strip()
+        return config.persona()
+    if text in BUILTIN_PERSONA_KEYS:
+        for preset in persona_presets():
+            if preset["id"] == text:
+                return preset["text"]
+        return config.persona()
+    if text.startswith("custom:"):
+        try:
+            idx = int(text.split(":", 1)[1])
+        except (ValueError, IndexError):
+            idx = 0
+        slots = _persona_slots_of(user_cfg)
+        if 1 <= idx <= len(slots) and slots[idx - 1]["text"].strip():
+            return slots[idx - 1]["text"].strip()
+        return config.persona()
+    return text
 
 
 def _model_config_for(user_cfg: dict[str, Any]) -> tuple[str, str, str]:
@@ -199,14 +258,11 @@ def _run_job(app, job_id: str, user_id: str) -> None:
             # 后台线程无请求上下文，直接用传入的 user_id 读用户配置
             user_cfg = _store().get_user_config(user_id) or {}
             api_key, api_url, model = _model_config_for(user_cfg)
-            # 人设优先级：本树人设 > 用户全局人设 > 系统默认（春宁）。
-            # 一棵树可以指定自己的陪伴者（如「情绪树洞」），不指定则跟随全局。
+            # 人设优先级：本树 key > 用户全局人设（旧字段）> 系统默认（春宁）。
+            # 树存的是 key（chunyu/rational/emotional/custom:N），
+            # 生成时解析成对应文字（自定义槽位缺失则退回默认）。
             quiz_session = _store().get_session(job["session_id"], user_id) or {}
-            persona = (
-                quiz_session.get("persona")
-                or user_cfg.get("persona")
-                or config.persona()
-            )
+            persona = _resolve_persona_text(quiz_session.get("persona"), user_cfg)
             provider = TreeProvider(
                 _methodology(),
                 api_key,
@@ -399,8 +455,23 @@ def create_session():
 
 @api_bp.route("/persona-presets", methods=["GET"])
 def get_persona_presets():
-    """内置人设预设列表（前端建树/切人设下拉用）。"""
-    return jsonify({"presets": persona_presets()})
+    """可选人设列表 = 3 内置（春宁/理性/感性）+ 3 个用户自定义槽位（空槽隐藏）。
+
+    前端按 id 匹配：id 是 key（chunyu/rational/emotional/custom:1..3），
+    展示名与备注跟随编辑实时刷新。
+    """
+    user_cfg = _user_config()
+    presets = persona_presets()
+    for i, slot in enumerate(_persona_slots_of(user_cfg), start=1):
+        if not slot["name"] and not slot["text"]:
+            continue  # 空槽位不出现在选择列表
+        presets.append({
+            "id": f"custom:{i}",
+            "name": slot["name"] or f"自定义人设 {i}",
+            "note": slot["note"] or "我的自定义人设",
+            "text": slot["text"],
+        })
+    return jsonify({"presets": presets})
 
 
 @api_bp.route("/sessions", methods=["GET"])

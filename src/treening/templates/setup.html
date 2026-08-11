@@ -20,6 +20,24 @@
   .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
   .grid-3 { display: grid; grid-template-columns: repeat(3,1fr); gap: 10px; }
   @media (max-width: 640px) { .grid-2, .grid-3 { grid-template-columns: 1fr; } }
+  .persona-slot-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; align-items: start; }
+  @media (max-width: 720px) { .persona-slot-grid { grid-template-columns: 1fr; } }
+  .persona-slot { border: 1px solid var(--quiz-line); border-radius: 12px; background: transparent; }
+  .persona-slot > summary {
+    display: flex; align-items: center; gap: 8px; padding: 10px 12px; cursor: pointer;
+    list-style: none; user-select: none; -webkit-user-select: none; border-radius: 12px;
+  }
+  .persona-slot > summary::-webkit-details-marker { display: none; }
+  .persona-slot[open] > summary { border-bottom: 1px solid var(--quiz-line); border-radius: 12px 12px 0 0; }
+  .slot-no { font-size: 13px; font-weight: 700; color: var(--quiz-accent, #3b82f6); }
+  .slot-title { font-size: 13px; font-weight: 600; color: var(--quiz-text); }
+  .slot-name {
+    margin-left: auto; max-width: 88px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font-size: 12px; color: var(--quiz-faint);
+  }
+  .slot-chevron { color: var(--quiz-faint); transition: transform 0.15s ease; font-size: 12px; }
+  .persona-slot[open] .slot-chevron { transform: rotate(180deg); }
+  .slot-body { padding: 12px 14px 14px; }
   .check-row { display: flex; flex-wrap: wrap; gap: 10px 18px; }
   .check-row label { display: flex; align-items: center; gap: 6px; margin: 0; font-size: 13px; cursor: pointer; }
   .mini-btn { padding: 4px 10px; font-size: 12px; border: 1px solid var(--quiz-line); border-radius: 8px; background: transparent; color: var(--quiz-text); cursor: pointer; }
@@ -106,14 +124,70 @@
   </section>
 
   <section class="admin-card persona-editor">
-    <h2>自定义人设（全局）</h2>
-    <p class="hint">人设作用于所有对话，<b>不按主题区分</b>。春宁是底座人设：留空 = 使用默认「春宁」；填入文字 = 用它覆盖默认；想恢复默认就清空保存。这里只作覆盖/重置，不参与初始设置。<br>
-      想要不同主题/节点的分化，可以写「无条件跟随对话内的指令」这类规则，由模型按你的指示分化。保存后立即生效，无需重启。</p>
-    <textarea id="setup-persona" rows="7"
-      placeholder="例如：你是一名有二十年嵌入式开发经验的老工程师，说话直接，先给结论再讲理由。"></textarea>
-    <p class="form-error" id="persona-error" role="alert"></p>
-    <div class="btn-row">
-      <button class="button" id="setup-persona-save" type="button">保存人设</button>
+    <h2>自定义人设（3 槽位）</h2>
+    <p class="hint">在这里定义最多 3 套自定义人设，每套都包含<b>名称、备注、人设文字</b>。保存后它们会出现在学习空间「切换陪伴者」的列表里（备注就是选择时圆点下方的灰色小字）。<b>空槽位不显示</b>，可随时回来补。<br>
+      系统自带 3 套可直接选择：<b>春宁</b>（中性陪伴）/ <b>理性春宁</b>（研究搭档）/ <b>感性春宁</b>（先接住情绪）。保存后立即生效，无需重启。</p>
+    <div class="persona-slot-grid">
+      <details class="persona-slot" id="persona-slot-1">
+        <summary>
+          <span class="slot-no">①</span>
+          <span class="slot-title">人设一</span>
+          <span class="slot-name" data-slot-name="1">未设置</span>
+          <span class="slot-chevron" aria-hidden="true">▾</span>
+        </summary>
+        <div class="slot-body">
+          <label for="ps-1-name">名称（最多 20 字）</label>
+          <input id="ps-1-name" type="text" maxlength="20" placeholder="例如：老工程师" autocomplete="off">
+          <label for="ps-1-note">备注（选择列表中的灰色小字，最多 60 字）</label>
+          <input id="ps-1-note" type="text" maxlength="60" placeholder="例如：直说、不绕弯，老工程师口吻" autocomplete="off">
+          <label for="ps-1-text">人设文字</label>
+          <textarea id="ps-1-text" rows="5" placeholder="例如：你是一名有二十年嵌入式开发经验的老工程师，说话直接，先给结论再讲理由。"></textarea>
+          <p class="form-error" id="persona-1-error" role="alert"></p>
+          <div class="btn-row">
+            <button class="button" data-slot-save="1" type="button">保存人设一</button>
+          </div>
+        </div>
+      </details>
+      <details class="persona-slot" id="persona-slot-2">
+        <summary>
+          <span class="slot-no">②</span>
+          <span class="slot-title">人设二</span>
+          <span class="slot-name" data-slot-name="2">未设置</span>
+          <span class="slot-chevron" aria-hidden="true">▾</span>
+        </summary>
+        <div class="slot-body">
+          <label for="ps-2-name">名称（最多 20 字）</label>
+          <input id="ps-2-name" type="text" maxlength="20" placeholder="例如：深夜好友" autocomplete="off">
+          <label for="ps-2-note">备注（选择列表中的灰色小字，最多 60 字）</label>
+          <input id="ps-2-note" type="text" maxlength="60" placeholder="例如：先接住你，再陪你聊" autocomplete="off">
+          <label for="ps-2-text">人设文字</label>
+          <textarea id="ps-2-text" rows="5" placeholder="例如：你是一个……"></textarea>
+          <p class="form-error" id="persona-2-error" role="alert"></p>
+          <div class="btn-row">
+            <button class="button" data-slot-save="2" type="button">保存人设二</button>
+          </div>
+        </div>
+      </details>
+      <details class="persona-slot" id="persona-slot-3">
+        <summary>
+          <span class="slot-no">③</span>
+          <span class="slot-title">人设三</span>
+          <span class="slot-name" data-slot-name="3">未设置</span>
+          <span class="slot-chevron" aria-hidden="true">▾</span>
+        </summary>
+        <div class="slot-body">
+          <label for="ps-3-name">名称（最多 20 字）</label>
+          <input id="ps-3-name" type="text" maxlength="20" placeholder="例如：学术督导" autocomplete="off">
+          <label for="ps-3-note">备注（选择列表中的灰色小字，最多 60 字）</label>
+          <input id="ps-3-note" type="text" maxlength="60" placeholder="例如：盯你论文进度" autocomplete="off">
+          <label for="ps-3-text">人设文字</label>
+          <textarea id="ps-3-text" rows="5" placeholder="例如：你是一个……"></textarea>
+          <p class="form-error" id="persona-3-error" role="alert"></p>
+          <div class="btn-row">
+            <button class="button" data-slot-save="3" type="button">保存人设三</button>
+          </div>
+        </div>
+      </details>
     </div>
   </section>
 

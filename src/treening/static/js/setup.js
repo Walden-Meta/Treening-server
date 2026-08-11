@@ -11,9 +11,14 @@
   const keyHint = $("#setup-key-hint");
   const backLink = $("#setup-back");
   const skipLink = $("#setup-skip");
-  const personaInput = $("#setup-persona");
-  const personaError = $("#persona-error");
-  const personaSaveBtn = $("#setup-persona-save");
+  const personaSlotErrors = {
+    1: $("#persona-1-error"), 2: $("#persona-2-error"), 3: $("#persona-3-error"),
+  };
+  const personaSlotName = {
+    1: document.querySelector('[data-slot-name="1"]'),
+    2: document.querySelector('[data-slot-name="2"]'),
+    3: document.querySelector('[data-slot-name="3"]'),
+  };
   const labelInputs = {
     check: $("#label-check"),
     followup: $("#label-followup"),
@@ -76,7 +81,7 @@
       if (d.api_url) urlInput.value = d.api_url;
       if (d.model) modelInput.value = d.model;
       hasExistingKey = Boolean(d.configured);
-      if (typeof d.persona === "string") personaInput.value = d.persona;
+      if (Array.isArray(d.persona_slots)) fillPersonaSlots(d.persona_slots);
       if (d.branch_labels && typeof d.branch_labels === "object") {
         for (const slot of ["check", "followup", "custom"]) {
           const el = labelInputs[slot];
@@ -251,26 +256,66 @@
     });
   }
 
-  personaSaveBtn.addEventListener("click", async () => {
-    const persona = personaInput.value.trim();
-    personaSaveBtn.disabled = true;
-    personaSaveBtn.textContent = "保存中…";
-    personaError.textContent = "";
-    try {
-      const res = await fetch("/api/setup/persona", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ persona }),
-      });
-      const d = await res.json();
-      if (!res.ok || !d.ok) { personaError.textContent = d.error || "保存失败"; return; }
-      personaError.textContent = "✓ 人设已保存，立即生效";
-    } catch (_) {
-      personaError.textContent = "保存失败，请重试";
-    } finally {
-      personaSaveBtn.disabled = false;
-      personaSaveBtn.textContent = "保存人设";
+  // ── 自定义人设（3 槽位） ──
+  function fillPersonaSlots(slots) {
+    for (let i = 1; i <= 3; i++) {
+      const slot = slots[i - 1];
+      const nameInput = $("#ps-" + i + "-name");
+      const noteInput = $("#ps-" + i + "-note");
+      const textInput = $("#ps-" + i + "-text");
+      if (!nameInput) continue;
+      nameInput.value = slot && slot.name ? slot.name : "";
+      noteInput.value = slot && slot.note ? slot.note : "";
+      textInput.value = slot && slot.text ? slot.text : "";
+      refreshSlotName(i);
     }
+  }
+  function refreshSlotName(i) {
+    const nameEl = personaSlotName[i];
+    if (!nameEl) return;
+    const name = ($("#ps-" + i + "-name") || {}).value || "";
+    nameEl.textContent = name.trim() ? name.trim() : "未设置";
+  }
+
+  for (let i = 1; i <= 3; i++) {
+    const nameInput = $("#ps-" + i + "-name");
+    if (!nameInput) continue;
+    nameInput.addEventListener("input", () => refreshSlotName(i));
+  }
+
+  const personaSlotSaveBtns = document.querySelectorAll("[data-slot-save]");
+  personaSlotSaveBtns.forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const i = Number(btn.getAttribute("data-slot-save"));
+      const errorEl = personaSlotErrors[i];
+      btn.disabled = true;
+      btn.textContent = "保存中…";
+      if (errorEl) errorEl.textContent = "";
+      try {
+        const slots = [];
+        for (let n = 1; n <= 3; n++) {
+          slots.push({
+            name: ($("#ps-" + n + "-name") || {}).value || "",
+            note: ($("#ps-" + n + "-note") || {}).value || "",
+            text: ($("#ps-" + n + "-text") || {}).value || "",
+          });
+        }
+        const res = await fetch("/api/setup/persona-slots", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ slots }),
+        });
+        const d = await res.json();
+        if (!res.ok || !d.ok) { if (errorEl) errorEl.textContent = d.error || "保存失败"; return; }
+        fillPersonaSlots(d.slots);
+        if (errorEl) errorEl.textContent = "✓ 已保存，立即生效";
+      } catch (_) {
+        if (errorEl) errorEl.textContent = "保存失败，请重试";
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "保存人设" + (["一", "二", "三"][i - 1] || "");
+      }
+    });
   });
 
   branchLabelsSaveBtn.addEventListener("click", async () => {

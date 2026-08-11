@@ -1222,10 +1222,13 @@ html[data-theme="dark"] .graph-viewport .bulk-visibility-controls {
 .site-logo-link {
   position: absolute;
   left: 0;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 68px;
-  height: 68px;
+  /* 下面位置固定：距 header 底部 8px 不动，只往上长 */
+  bottom: 8px;
+  top: auto;
+  transform: none;
+  /* 整体成比例放大：80px，顶缘略微高过右侧标题文字 */
+  width: 80px;
+  height: 80px;
   z-index: 1;
   cursor: pointer;
 }
@@ -1241,7 +1244,7 @@ html[data-theme="dark"] .graph-viewport .bulk-visibility-controls {
 .site-logo-link:hover .site-logo { opacity: .88; }
 @media (max-width: 767px) {
   .study-header { padding-left: 0; }
-  .site-logo-link { position: static; width: 60px; height: 60px; margin-bottom: 8px; }
+  .site-logo-link { position: static; width: 72px; height: 72px; margin-bottom: 8px; }
 }
 
 /* ============================================================
@@ -1634,21 +1637,32 @@ html[data-theme="dark"] .detail-branch-line { stroke: rgba(226,232,240,.22); }
 }
 .modal h3 { margin: 0 0 8px; font-size: 18px; font-weight: 600; color: var(--quiz-text); }
 .modal-hint { margin: 0 0 18px; color: var(--quiz-faint); font-size: 13px; line-height: 1.6; }
-.persona-options { display: grid; gap: 10px; margin-bottom: 20px; }
+.persona-options {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 20px;
+  max-height: 46vh;
+  overflow-y: auto;
+  padding-right: 4px;
+}
 .persona-option {
   display: grid;
   grid-template-columns: auto 1fr;
-  grid-template-rows: auto auto;
-  column-gap: 10px;
-  align-items: start;
-  padding: 12px 14px;
+  grid-template-areas:
+    "dot name"
+    "note note";
+  column-gap: 12px;
+  row-gap: 2px;
+  align-items: center;
+  padding: 11px 14px;
   border: 1px solid var(--quiz-line);
   border-radius: 12px;
   cursor: pointer;
   transition: border-color .15s ease, background .15s ease;
 }
 .persona-option:has(input:checked) { border-color: var(--quiz-accent); background: var(--quiz-surface-raised); }
-.persona-option input { margin-top: 3px; accent-color: var(--quiz-accent); }
-.persona-option-name { font-size: 14px; font-weight: 600; color: var(--quiz-text); }
-.persona-option-desc { font-size: 12px; color: var(--quiz-faint); line-height: 1.5; margin-top: 2px; }
+/* 圆点最左侧，名字最右侧、与圆点同行，备注灰色小字在下方 */
+.persona-option input { grid-area: dot; justify-self: start; accent-color: var(--quiz-accent); }
+.persona-option-name { grid-area: name; justify-self: end; text-align: right; font-size: 14px; font-weight: 600; color: var(--quiz-text); }
+.persona-option-note { grid-area: note; font-size: 12px; color: var(--quiz-faint); line-height: 1.5; }
 .modal-actions { display: flex; justify-content: flex-end; gap: 10px; }

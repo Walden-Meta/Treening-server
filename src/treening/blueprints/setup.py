@@ -76,6 +76,7 @@ def get_setup():
         "effective_api_url": user_api_url or config.API_URL,
         "effective_model": user_model or config.MODEL,
         "persona": user_cfg.get("persona", ""),
+        "persona_slots": user_cfg.get("persona_slots") or [],
         "branch_labels": _branch_labels_for(user_cfg),
         "layout_prefs": layout_prefs_for(user_cfg),
         "deconstruction_enabled": (
@@ -227,6 +228,43 @@ def save_persona():
         }), 400
     _store().save_user_config(user["id"], persona=persona)
     return jsonify({"ok": True, "persona": persona})
+
+
+@setup_bp.route("/persona-slots", methods=["POST"])
+def save_persona_slots():
+    """保存当前登录用户的 3 个自定义人设槽位（按用户隔离，保存即生效）。
+
+    每个槽位 {name, note, text}，可留空（隐藏该槽）。
+    槽位会出现在学习空间「切换陪伴者」列表里（id 为 custom:1..3）。
+    """
+    user = _current_user()
+    if not user:
+        return jsonify({"ok": False, "error": "未登录"}), 401
+    data = request.get_json(silent=True) or {}
+    slots = data.get("slots")
+    if not isinstance(slots, list) or len(slots) > 3:
+        return jsonify({"ok": False, "error": "自定义人设最多 3 个"}), 400
+    cleaned: list[dict[str, str]] = []
+    for i, slot in enumerate(slots, start=1):
+        if not isinstance(slot, dict):
+            return jsonify({"ok": False, "error": f"第 {i} 个人设格式不正确"}), 400
+        name = str(slot.get("name") or "").strip()
+        note = str(slot.get("note") or "").strip()
+        text = str(slot.get("text") or "").strip()
+        if len(name) > 20:
+            return jsonify({"ok": False, "error": f"第 {i} 个人设名称过长（最多 20 字）"}), 400
+        if len(note) > 60:
+            return jsonify({"ok": False, "error": f"第 {i} 个人设备注过长（最多 60 字）"}), 400
+        if len(text) > int(config.PERSONA_MAX_CHARS):
+            return jsonify({
+                "ok": False,
+                "error": f"第 {i} 个人设文字过长（最多 {config.PERSONA_MAX_CHARS} 字）",
+            }), 400
+        cleaned.append({"name": name, "note": note, "text": text})
+    while len(cleaned) < 3:
+        cleaned.append({"name": "", "note": "", "text": ""})
+    _store().save_user_config(user["id"], persona_slots=cleaned)
+    return jsonify({"ok": True, "slots": cleaned})
 
 
 @setup_bp.route("/branch-labels", methods=["POST"])

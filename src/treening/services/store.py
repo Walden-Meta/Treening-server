@@ -318,6 +318,10 @@ class TreeStore:
                     conn.execute(
                         f"ALTER TABLE user_configs ADD COLUMN {col} TEXT NOT NULL DEFAULT ''"
                     )
+            if "persona_slots" not in user_config_columns:
+                conn.execute(
+                    "ALTER TABLE user_configs ADD COLUMN persona_slots TEXT NOT NULL DEFAULT '[]'"
+                )
             session_columns = {
                 row["name"]
                 for row in conn.execute("PRAGMA table_info(quiz_sessions)").fetchall()
@@ -346,6 +350,40 @@ class TreeStore:
                 """
             )
             self._recover_incomplete_jobs(conn)
+        # 树级 persona 从「人设文本」迁移为「人设 key」（幂等，可重复执行）
+        self._migrate_session_persona_keys()
+
+    def _migrate_session_persona_keys(self) -> int:
+        """把旧版存的人设文本迁移为 key（chunyu/rational/emotional/custom:N）。
+
+        - 空值不变（= 跟随默认春宁）
+        - 已是合法 key 的不动
+        - 旧「共学搭档」版春宁 → chunyu；旧「情绪树洞」→ emotional
+        - 其余用户自定义文本保留（前端显示为「自定义人设」）
+        幂等：重复执行只影响仍为文本的记录。
+        """
+        _builtin = ("chunyu", "rational", "emotional")
+        with self._connection() as conn:
+            rows = conn.execute(
+                "SELECT id, persona FROM quiz_sessions WHERE persona != ''"
+            ).fetchall()
+            migrated = 0
+            for row in rows:
+                text = row["persona"]
+                if text in _builtin or text.startswith("custom:"):
+                    continue
+                if "共学搭档" in text:
+                    new_key = "chunyu"
+                elif "情绪树洞" in text:
+                    new_key = "emotional"
+                else:
+                    continue
+                conn.execute(
+                    "UPDATE quiz_sessions SET persona = ? WHERE id = ?",
+                    (new_key, row["id"]),
+                )
+                migrated += 1
+        return migrated
 
     @staticmethod
     def _recover_incomplete_jobs(conn: sqlite3.Connection) -> None:
@@ -1450,8 +1488,13 @@ class TreeStore:
             layout_prefs = json.loads(row["layout_prefs"] or "{}")
         except (ValueError, TypeError):
             layout_prefs = {}
+        try:
+            persona_slots = json.loads(row["persona_slots"] or "[]")
+        except (ValueError, TypeError):
+            persona_slots = []
         return {
             "persona": row["persona"] or "",
+            "persona_slots": persona_slots if isinstance(persona_slots, list) else [],
             "branch_labels": branch_labels if isinstance(branch_labels, dict) else {},
             "deconstruction_enabled": (
                 deconstruction_enabled if isinstance(deconstruction_enabled, list) else []
@@ -1481,6 +1524,7 @@ class TreeStore:
         api_key: str | None = None,
         api_url: str | None = None,
         model: str | None = None,
+        persona_slots: list[dict[str, str]] | None = None,
     ) -> dict[str, Any]:
         """写入用户配置（UPSERT）。只更新传入的字段，其余保持不变。
 
@@ -1490,6 +1534,11 @@ class TreeStore:
         current = self.get_user_config(user_id) or {}
         merged = {
             "persona": current.get("persona", "") if persona is None else persona,
+            "persona_slots": (
+                current.get("persona_slots", [])
+                if persona_slots is None
+                else persona_slots
+            ),
             "branch_labels": (
                 current.get("branch_labels", {}) if branch_labels is None else branch_labels
             ),
@@ -1510,8 +1559,8 @@ class TreeStore:
                 """
                 INSERT INTO user_configs (user_id, persona, branch_labels,
                                           deconstruction_enabled, layout_prefs,
-                                          api_key, api_url, model, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                          api_key, api_url, model, persona_slots, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(user_id) DO UPDATE SET
                     persona = excluded.persona,
                     branch_labels = excluded.branch_labels,
@@ -1520,6 +1569,7 @@ class TreeStore:
                     api_key = excluded.api_key,
                     api_url = excluded.api_url,
                     model = excluded.model,
+                    persona_slots = excluded.persona_slots,
                     updated_at = excluded.updated_at
                 """,
                 (
@@ -1531,6 +1581,7 @@ class TreeStore:
                     merged["api_key"],
                     merged["api_url"],
                     merged["model"],
+                    json.dumps(merged["persona_slots"], ensure_ascii=False),
                     _now(),
                 ),
             )

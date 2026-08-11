@@ -22,7 +22,7 @@
     canvasUndo: window.TreeningHistoryState.createUndoStack(30),
     viewTransitionTimer: null,
     personaPresets: [],   // 内置人设预设（GET /api/quiz/persona-presets）
-    sessionPersona: "",   // 当前树的人设文字；空 = 跟随全局默认
+    sessionPersona: "",   // 当前树的陪伴者 key（chunyu/rational/emotional/custom:N）；空 = 春宁默认
     pendingPersonaMode: null,  // 人设对话框用途："new" 建树 / "switch" 切人设
     pendingEmptySession: false,  // 新主题已建空树：虽无节点，工作台已进入「树状态」（显示标题/陪伴者）
   };
@@ -2819,8 +2819,8 @@
     } finally { DOM.exportButton.disabled = false; }
   }
   function personaNameFor(text) {
-    if (!text) return "跟随默认";
-    const match = State.personaPresets.find((preset) => preset.text === text);
+    if (!text) return "春宁";  // 未指定 = 默认春宁
+    const match = State.personaPresets.find((preset) => preset.id === text);
     return match ? match.name : "自定义人设";
   }
 
@@ -2834,19 +2834,20 @@
   function renderPersonaOptions() {
     if (!DOM.personaOptions) return;
     DOM.personaOptions.innerHTML = "";
-    const add = (value, name, desc, checked) => {
+    // 默认选中：当前树的陪伴者；未指定 = 春宁（默认）
+    const current = State.sessionPersona || "chunyu";
+    const add = (preset, checked) => {
       const label = document.createElement("label");
       label.className = "persona-option";
       const input = document.createElement("input");
-      input.type = "radio"; input.name = "persona-choice"; input.value = value; input.checked = checked;
-      const nameSpan = document.createElement("span"); nameSpan.className = "persona-option-name"; nameSpan.textContent = name;
-      const descSpan = document.createElement("span"); descSpan.className = "persona-option-desc"; descSpan.textContent = desc;
-      label.append(input, nameSpan, descSpan);
+      input.type = "radio"; input.name = "persona-choice"; input.value = preset.id; input.checked = checked;
+      const nameSpan = document.createElement("span"); nameSpan.className = "persona-option-name"; nameSpan.textContent = preset.name;
+      const noteSpan = document.createElement("span"); noteSpan.className = "persona-option-note"; noteSpan.textContent = preset.note || "";
+      label.append(input, nameSpan, noteSpan);
       DOM.personaOptions.append(label);
     };
-    add("", "跟随默认", "全局配置里的人设（默认春宁）", !State.sessionPersona);
     for (const preset of State.personaPresets) {
-      add(preset.text, preset.name, preset.description, preset.text === State.sessionPersona);
+      add(preset, preset.id === current);
     }
   }
 
