@@ -10,7 +10,11 @@ from pathlib import Path
 
 import yaml
 
-BASE_DIR = Path(__file__).resolve().parent.parent.parent  # 仓库根
+# 项目根 / 数据根。
+# 开发态 = 仓库根；桌面版（desktop/launcher.py）设 TREENING_BASE_DIR 重定向到
+# 用户数据目录（%APPDATA%/Treening），使 .secret / settings.json / 手册 PDF
+# 全部落到可写目录，避开 PyInstaller 只读解包区。
+BASE_DIR = Path(os.environ.get("TREENING_BASE_DIR") or Path(__file__).resolve().parent.parent.parent)
 
 
 def _load_settings() -> dict:
@@ -121,7 +125,10 @@ class Config:
         self.JOB_SWEEPER_INTERVAL: int = int(_env("JOB_SWEEPER_INTERVAL", "10"))
         self.JOB_SWEEPER_ENABLED: bool = _env("JOB_SWEEPER_ENABLED", "true").lower() in {"1", "true", "yes"}
         # 全局在途任务上限（pending+running），防止线程池排队无限积压
-        self.MAX_GLOBAL_INFLIGHT: int = int(_env("MAX_GLOBAL_INFLIGHT", "6"))
+        # 默认 15 = 10 个正在跑 + 5 个排队（"10跑5排"）
+        self.MAX_GLOBAL_INFLIGHT: int = int(_env("MAX_GLOBAL_INFLIGHT", "15"))
+        # 后台任务执行器并发数：真正并行执行（调 LLM）的任务数，其余在池内排队
+        self.JOB_EXECUTOR_WORKERS: int = int(_env("JOB_EXECUTOR_WORKERS", "10"))
 
         # 配额（默认启用；普通用户每人每日默认 20 次，管理员不限，可在管理面板按人覆盖）
         self.QUOTA_ENABLED: bool = _env("QUOTA_ENABLED", "true").lower() in {"1", "true", "yes"}

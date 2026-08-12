@@ -16,7 +16,7 @@ RUN apt-get update \
     && pip install --no-cache-dir gunicorn \
     # 可编辑安装：包留在 /app/src，BASE_DIR 正确解析为 /app
     # （非可编辑安装会把包装进 site-packages，导致 BASE_DIR 错算、库写进容器内层）
-    && pip install --no-cache-dir -e '.[monitoring]'
+    && pip install --no-cache-dir -e '.[monitoring,docx]'
 
 # 方法论：知识树规则（app 运行时会读取）
 COPY methodology ./methodology
@@ -41,4 +41,4 @@ EXPOSE 5000
 
 # 单 worker 多线程：SQLite 并发写安全 + 阻塞型 LLM 请求并发友好
 # --max-requests：定期回收 worker，防长期运行内存缓慢增长；jitter 避免同步重启
-CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "1", "--threads", "4", "--timeout", "120", "--max-requests", "1000", "--max-requests-jitter", "100", "treening.app:app"]
+CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "2", "--threads", "4", "--timeout", "120", "--max-requests", "1000", "--max-requests-jitter", "100", "treening.app:app"]

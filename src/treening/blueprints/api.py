@@ -34,7 +34,9 @@ logger = logging.getLogger(__name__)
 api_bp = Blueprint("tree", __name__, url_prefix="/api/quiz")
 
 INTERACTION_TYPES = {"question", "followup", "check", "custom", "correction"}
-_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="tree-provider")
+_executor = ThreadPoolExecutor(
+    max_workers=int(config.JOB_EXECUTOR_WORKERS), thread_name_prefix="tree-provider"
+)
 _submit_lock = threading.Lock()
 
 

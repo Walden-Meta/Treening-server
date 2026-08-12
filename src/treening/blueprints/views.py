@@ -44,6 +44,16 @@ def reset_page():
     return render_template("reset.html", token=request.args.get("token", ""))
 
 
+@views_bp.route("/replay")
+def replay_page():
+    """生长回放：把一棵知识的成长过程放成一部小电影。
+
+    独立于学习工具的冷静界面之外，是这个应用唯一允许"炫"的地方：
+    树的根先落地，然后每一根枝按时间顺序发芽、描线、开花。
+    """
+    return render_template("replay.html")
+
+
 @views_bp.route("/setup")
 def setup_page():
     """首次运行配置页。"""
@@ -84,4 +94,12 @@ def health():
         current_app.logger.warning("health check failed: database probe error")
         return {"ok": False, "service": "treening", "database": "error"}, 503
     return {"ok": True, "service": "treening", "database": "ok"}
+
+
+@views_bp.route("/api/version")
+def version():
+    """版本信息：桌面版"检查更新"与运维对照用，无需登录即可访问。"""
+    from .. import __version__
+
+    return {"ok": True, "service": "treening", "version": __version__}
 

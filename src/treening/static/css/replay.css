@@ -1,0 +1,633 @@
+/* ============================================================
+   Treening · 生长回放（Growth Replay）
+   工具界面保持冷静严谨克制；这里是剧场，负责浪漫。
+   ============================================================ */
+
+:root {
+  --r-bg-0: #070b14;
+  --r-bg-1: #0d1426;
+  --r-bg-2: #131c33;
+  --r-ink: #e8edf7;
+  --r-ink-dim: #9aa7bf;
+  --r-ink-faint: #6b7892;
+  --r-hairline: rgba(148, 169, 211, 0.16);
+  --r-glass: rgba(18, 26, 46, 0.72);
+  --r-glass-border: rgba(148, 169, 211, 0.22);
+  --r-accent: #8fb4ff;
+  --r-accent-soft: rgba(143, 180, 255, 0.16);
+
+  --r-check: #fbbf24;
+  --r-followup: #38bdf8;
+  --r-custom: #c084fc;
+  --r-question: #7dd3a8;
+
+  --r-font-display: "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+
+.replay-body {
+  background:
+    radial-gradient(1200px 800px at 50% -10%, rgba(59, 92, 161, 0.28), transparent 60%),
+    radial-gradient(900px 600px at 85% 110%, rgba(88, 60, 160, 0.18), transparent 55%),
+    radial-gradient(700px 500px at 8% 100%, rgba(30, 90, 120, 0.16), transparent 55%),
+    linear-gradient(180deg, var(--r-bg-0), var(--r-bg-1) 55%, var(--r-bg-0));
+  color: var(--r-ink);
+  font-family: var(--r-font-display);
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+.replay-stage {
+  position: relative;
+  height: 100vh;
+  height: 100dvh;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+}
+
+/* 悬浮尘埃 */
+.replay-ambient { position: fixed; inset: 0; pointer-events: none; overflow: hidden; z-index: 0; }
+.replay-ambient i {
+  position: absolute;
+  display: block;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(170, 200, 255, 0.9), rgba(170, 200, 255, 0) 70%);
+  opacity: 0;
+  animation: r-dust var(--r-drift, 14s) linear infinite;
+  animation-delay: var(--r-delay, 0s);
+  will-change: transform, opacity;
+}
+@keyframes r-dust {
+  0%   { transform: translate3d(0, 0, 0) scale(0.6); opacity: 0; }
+  12%  { opacity: var(--r-op, 0.5); }
+  85%  { opacity: calc(var(--r-op, 0.5) * 0.7); }
+  100% { transform: translate3d(var(--r-drift-x, 30px), -38vh, 0) scale(1); opacity: 0; }
+}
+
+/* 顶栏 */
+.replay-header {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 22px 30px 10px;
+}
+.replay-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 12px;
+  border: 1px solid var(--r-hairline);
+  border-radius: 999px;
+  color: var(--r-ink-dim);
+  font-size: 13px;
+  text-decoration: none;
+  background: var(--r-glass);
+  backdrop-filter: blur(8px);
+  transition: color 0.2s, border-color 0.2s, transform 0.2s;
+}
+.replay-back:hover { color: var(--r-ink); border-color: var(--r-glass-border); transform: translateX(-2px); }
+
+.replay-titleblock { text-align: center; flex: 1; }
+.replay-eyebrow {
+  margin: 0 0 4px;
+  font-size: 10px;
+  letter-spacing: 0.42em;
+  text-indent: 0.42em;
+  text-transform: uppercase;
+  color: var(--r-ink-faint);
+  font-weight: 600;
+}
+.replay-titleblock h1 {
+  margin: 0;
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  background: linear-gradient(180deg, #f2f6ff, #aebde0);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: r-title-in 1.2s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.replay-subtitle {
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: var(--r-ink-dim);
+  animation: r-title-in 1.2s 0.15s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+@keyframes r-title-in {
+  from { opacity: 0; transform: translateY(10px); letter-spacing: 0.34em; }
+  to   { opacity: 1; transform: translateY(0);   letter-spacing: 0.16em; }
+}
+
+.replay-counter {
+  min-width: 130px;
+  text-align: right;
+  padding-top: 9px;
+  font-size: 12px;
+  color: var(--r-ink-dim);
+  font-variant-numeric: tabular-nums;
+}
+.replay-counter b { color: var(--r-ink); font-size: 16px; font-weight: 600; }
+.replay-counter-unit { margin-left: 6px; color: var(--r-ink-faint); font-size: 11px; }
+
+/* 剧场 */
+.replay-theater {
+  position: relative;
+  z-index: 1;
+  min-height: 0;
+  overflow: hidden;
+  margin: 6px 26px 0;
+  border-radius: 18px;
+  border: 1px solid var(--r-hairline);
+  background:
+    radial-gradient(720px 480px at 50% 30%, rgba(96, 132, 200, 0.12), transparent 65%),
+    linear-gradient(180deg, rgba(10, 16, 30, 0.35), rgba(6, 10, 20, 0.55));
+  box-shadow: inset 0 0 60px rgba(0, 0, 0, 0.45), 0 20px 60px rgba(0, 0, 0, 0.35);
+  cursor: grab;
+  touch-action: none;
+}
+.replay-theater.is-panning { cursor: grabbing; }
+
+.replay-world {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+  will-change: transform;
+}
+.replay-scene { position: absolute; top: 0; left: 0; overflow: visible; }
+.replay-scene .r-edge {
+  fill: none;
+  stroke-width: 2;
+  stroke-linecap: round;
+  opacity: 0;
+}
+.replay-scene .r-edge.is-drawn { transition: opacity 0.2s; opacity: 1; }
+.replay-scene .r-edge-glow { fill: none; stroke-width: 6; stroke-linecap: round; opacity: 0.18; filter: blur(2px); }
+.replay-scene .r-spark { opacity: 0; }
+.replay-nodes { position: absolute; top: 0; left: 0; }
+
+/* 节点卡片 */
+.r-node {
+  position: absolute;
+  transform-origin: 50% 0;
+  width: 236px;
+  height: 88px;
+  border-radius: 12px;
+  border: 1px solid var(--r-glass-border);
+  background: var(--r-glass);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 6px 24px rgba(4, 8, 18, 0.4);
+  overflow: hidden;
+  opacity: 0;
+  cursor: pointer;
+  transition: box-shadow 0.35s ease;
+}
+.r-node:hover { box-shadow: 0 8px 32px rgba(4, 8, 18, 0.6); }
+.r-node::before {
+  content: "";
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 3px;
+  background: var(--r-accent);
+  opacity: 0.85;
+}
+
+.r-role {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px 0;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: var(--r-ink-dim);
+}
+.r-role .r-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--r-accent); box-shadow: 0 0 8px var(--r-accent); }
+.r-role .r-tag {
+  margin-left: auto;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  padding: 1px 7px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--r-accent) 55%, transparent);
+  color: var(--r-accent);
+}
+
+.r-content {
+  padding: 5px 26px 9px 12px;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--r-ink);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-word;
+}
+.r-node.is-user .r-content { color: var(--r-ink-dim); }
+.r-index {
+  position: absolute;
+  right: 8px;
+  bottom: 5px;
+  font-size: 10px;
+  color: var(--r-ink-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.r-node[data-branch="check"]     { --r-accent: var(--r-check); }
+.r-node[data-branch="followup"]  { --r-accent: var(--r-followup); }
+.r-node[data-branch="custom"]    { --r-accent: var(--r-custom); }
+.r-node[data-branch="question"]  { --r-accent: var(--r-question); }
+
+/* 生长动画 */
+.r-node.is-appearing {
+  animation:
+    r-bloom 0.72s cubic-bezier(0.34, 1.56, 0.64, 1) both,
+    r-glow 0.72s 0.05s ease-out both;
+}
+.r-node.is-appearing .r-content { animation: r-content-in 0.5s 0.32s ease-out both; }
+.r-node.is-appearing .r-role { animation: r-content-in 0.4s 0.16s ease-out both; }
+@keyframes r-bloom {
+  0%   { transform: scale(0.18) translateY(26px); opacity: 0; filter: brightness(1.7); }
+  60%  { transform: scale(1.06); opacity: 1; }
+  78%  { transform: scale(0.985); }
+  100% { transform: scale(1); opacity: 1; filter: brightness(1); }
+}
+@keyframes r-glow {
+  0%   { box-shadow: 0 0 0 0 var(--r-accent-soft), 0 6px 24px rgba(4, 8, 18, 0.4); }
+  55%  { box-shadow: 0 0 34px 6px color-mix(in srgb, var(--r-accent) 34%, transparent), 0 6px 24px rgba(4, 8, 18, 0.4); }
+  100% { box-shadow: 0 0 0 0 transparent, 0 6px 24px rgba(4, 8, 18, 0.4); }
+}
+@keyframes r-content-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* 根节点：与其它卡片统一尺寸，仅保留柔和的光晕 */
+.r-node.is-root {
+  border-radius: 14px;
+}
+.r-node.is-root.is-appearing {
+  animation:
+    r-bloom 0.9s cubic-bezier(0.34, 1.56, 0.64, 1) both,
+    r-root-glow 2.4s 0.5s ease-in-out infinite;
+}
+.r-node.is-root .r-content { font-size: 13px; }
+@keyframes r-root-glow {
+  0%, 100% { box-shadow: 0 0 22px 2px rgba(125, 211, 168, 0.16), 0 8px 30px rgba(4, 8, 18, 0.45); }
+  50%      { box-shadow: 0 0 46px 12px rgba(125, 211, 168, 0.28), 0 8px 30px rgba(4, 8, 18, 0.45); }
+}
+
+/* 提示条 */
+.replay-hint {
+  position: absolute;
+  left: 50%;
+  bottom: 46px;
+  transform: translateX(-50%);
+  z-index: 3;
+  padding: 10px 22px;
+  border-radius: 999px;
+  border: 1px solid var(--r-hairline);
+  background: rgba(10, 15, 28, 0.72);
+  backdrop-filter: blur(10px);
+  color: var(--r-ink-dim);
+  font-size: 13px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.4s ease;
+  text-align: center;
+}
+.replay-hint.is-visible { opacity: 1; }
+.replay-hint.is-hidden { display: none; }
+
+/* 摘要补生成条 */
+.replay-missing {
+  position: absolute;
+  top: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 3;
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px;
+  border-radius: 999px;
+  border: 1px solid rgba(251, 191, 36, 0.35);
+  background: rgba(10, 15, 28, 0.78);
+  backdrop-filter: blur(10px);
+  color: var(--r-ink-dim);
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+.replay-missing b { color: #fbbf24; font-weight: 600; }
+.replay-missing-btn {
+  border: 1px solid rgba(251, 191, 36, 0.45);
+  background: rgba(251, 191, 36, 0.14);
+  color: #fcd34d;
+  font-size: 12px;
+  font-family: inherit;
+  padding: 4px 12px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.replay-missing-btn:hover:not(:disabled) { background: rgba(251, 191, 36, 0.26); }
+.replay-missing-btn:disabled { opacity: 0.6; cursor: default; }
+.replay-missing[hidden] { display: none; }
+
+/* 控制条 */
+.replay-controls {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 14px 30px 18px;
+}
+.replay-picker { display: inline-flex; align-items: center; gap: 10px; min-width: 0; }
+.replay-picker-label { font-size: 12px; color: var(--r-ink-faint); letter-spacing: 0.1em; white-space: nowrap; }
+.replay-picker select {
+  max-width: 300px;
+  padding: 8px 32px 8px 13px;
+  border-radius: 9px;
+  border: 1px solid var(--r-hairline);
+  background: var(--r-glass);
+  color: var(--r-ink);
+  font-size: 13px;
+  font-family: inherit;
+  appearance: none;
+  -webkit-appearance: none;
+  cursor: pointer;
+}
+.replay-picker select:focus-visible { outline: 2px solid var(--r-accent-soft); outline-offset: 2px; }
+
+.replay-playback { flex: 1; display: flex; align-items: center; gap: 14px; }
+.replay-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  border: 1px solid var(--r-hairline);
+  background: var(--r-glass);
+  color: var(--r-ink);
+  cursor: pointer;
+  transition: border-color 0.2s, color 0.2s, transform 0.15s, background 0.2s;
+}
+.replay-btn:hover { border-color: var(--r-glass-border); color: #fff; transform: translateY(-1px); }
+.replay-btn:active { transform: translateY(0) scale(0.94); }
+.replay-btn-play {
+  width: 46px;
+  height: 46px;
+  background: linear-gradient(180deg, rgba(143,180,255,0.22), rgba(143,180,255,0.10));
+  border-color: rgba(143, 180, 255, 0.4);
+  color: #cfe0ff;
+}
+.replay-btn-play:hover { color: #fff; border-color: rgba(143, 180, 255, 0.7); }
+
+/* 卡片内容模式：摘要 / 全文 */
+.replay-mode {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 10px;
+  border: 1px solid var(--r-hairline);
+  background: rgba(10, 15, 28, 0.5);
+}
+.replay-mode-btn {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--r-ink-faint);
+  font-size: 12px;
+  font-family: inherit;
+  letter-spacing: 0.06em;
+  padding: 5px 12px;
+  border-radius: 7px;
+  cursor: pointer;
+  transition: color 0.2s, background 0.2s;
+}
+.replay-mode-btn:hover { color: var(--r-ink); }
+.replay-mode-btn.is-active {
+  color: #fff;
+  background: rgba(143, 180, 255, 0.18);
+  box-shadow: inset 0 0 0 1px rgba(143, 180, 255, 0.35);
+}
+
+.replay-timeline {
+  position: relative;
+  flex: 1;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+}
+.replay-timeline::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 3px;
+  border-radius: 3px;
+  background: rgba(148, 169, 211, 0.18);
+}
+.replay-progress {
+  position: absolute;
+  left: 0;
+  height: 3px;
+  width: 0%;
+  border-radius: 3px;
+  background: linear-gradient(90deg, rgba(143,180,255,0.7), #8fb4ff);
+  box-shadow: 0 0 10px rgba(143, 180, 255, 0.5);
+}
+.replay-knob {
+  position: absolute;
+  left: 0%;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #e8f0ff;
+  border: 2px solid #8fb4ff;
+  box-shadow: 0 0 12px rgba(143, 180, 255, 0.8);
+  transform: translateX(-50%);
+  transition: left 0.15s linear;
+}
+.replay-knob.is-idle { display: none; }
+
+.replay-speed select {
+  padding: 7px 28px 7px 11px;
+  border-radius: 9px;
+  border: 1px solid var(--r-hairline);
+  background: var(--r-glass);
+  color: var(--r-ink-dim);
+  font-size: 12px;
+  font-family: inherit;
+  appearance: none;
+  -webkit-appearance: none;
+  cursor: pointer;
+}
+.replay-speed select:hover { color: var(--r-ink); }
+
+/* 空状态 */
+.replay-empty {
+  position: fixed;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(900px 600px at 50% 40%, rgba(59, 92, 161, 0.22), transparent 60%), var(--r-bg-0);
+  color: var(--r-ink-dim);
+  text-align: center;
+  font-size: 15px;
+  line-height: 1.9;
+}
+.replay-empty a { color: var(--r-accent); text-decoration: none; border-bottom: 1px solid transparent; }
+.replay-empty a:hover { border-bottom-color: var(--r-accent); }
+
+/* 无障碍：减少动效 */
+@media (prefers-reduced-motion: reduce) {
+  .replay-ambient i { display: none; }
+  .replay-titleblock h1, .replay-subtitle { animation: none; }
+  .r-node.is-appearing { animation: r-bloom 0.28s ease-out both; }
+  .r-node.is-appearing .r-content, .r-node.is-appearing .r-role { animation: none; }
+  .r-node.is-root.is-appearing { animation: r-bloom 0.28s ease-out both; }
+}
+
+/* 快进（seek）时节点直接落地 */
+.r-node.is-settled {
+  opacity: 1;
+  transform: scale(1);
+  animation: none !important;
+}
+.r-node.is-settled .r-content,
+.r-node.is-settled .r-role {
+  opacity: 1;
+  transform: none;
+  animation: none !important;
+}
+
+/* 暂停：冻结一切 CSS 动画 */
+.replay-world.is-paused .r-node,
+.replay-world.is-paused .r-node .r-content,
+.replay-world.is-paused .r-node .r-role {
+  animation-play-state: paused !important;
+}
+
+/* 空状态默认隐藏：display:flex 会盖掉 [hidden] 的 UA 规则，必须显式补 */
+.replay-empty[hidden] { display: none; }
+
+/* ============================================================
+ * 同树双舞台：画布内嵌全屏剧场层 + 详情弹卡 + 手势
+ * ============================================================ */
+
+/* 画布内嵌时的全屏舞台层（tree.html 里的 #replay-overlay） */
+.replay-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  overflow: hidden;
+  background:
+    radial-gradient(1200px 800px at 50% -10%, rgba(59, 92, 161, 0.28), transparent 60%),
+    radial-gradient(900px 600px at 85% 110%, rgba(88, 60, 160, 0.18), transparent 55%),
+    radial-gradient(700px 500px at 8% 100%, rgba(30, 90, 120, 0.16), transparent 55%),
+    linear-gradient(180deg, var(--r-bg-0), var(--r-bg-1) 55%, var(--r-bg-0));
+  color: var(--r-ink);
+  font-family: var(--r-font-display);
+}
+.replay-overlay[hidden] { display: none; }
+.replay-overlay .replay-stage { height: 100%; }
+body.has-replay-overlay { overflow: hidden; }
+
+/* 拖动平移时不选中文字（这是「一拖就选中文字」的根治） */
+.replay-theater {
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+.replay-detail { user-select: text; -webkit-user-select: text; }
+
+/* 节点详情弹卡 */
+.replay-detail {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 4;
+  width: min(460px, 84%);
+  max-height: 64%;
+  overflow: auto;
+  padding: 18px 22px;
+  border-radius: 14px;
+  border: 1px solid var(--r-glass-border);
+  background: rgba(9, 14, 27, 0.94);
+  backdrop-filter: blur(14px);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.6), 0 0 40px rgba(143, 180, 255, 0.08);
+}
+.replay-detail[hidden] { display: none; }
+.replay-detail-close {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  width: 26px;
+  height: 26px;
+  border: none;
+  background: transparent;
+  color: var(--r-ink-dim);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  border-radius: 50%;
+}
+.replay-detail-close:hover { color: var(--r-ink); background: rgba(148, 169, 211, 0.12); }
+.replay-detail-head { display: flex; align-items: center; gap: 10px; padding-right: 34px; }
+.replay-detail-role { font-size: 12px; font-weight: 600; letter-spacing: 0.08em; color: var(--r-ink-dim); }
+.replay-detail-tag {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  padding: 2px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--r-accent);
+  color: var(--r-accent);
+}
+.replay-detail-body {
+  margin-top: 12px;
+  font-size: 13.5px;
+  line-height: 1.72;
+  color: var(--r-ink);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* 跟随生长按钮：点亮态 */
+.replay-btn-follow.is-active {
+  border-color: rgba(143, 180, 255, 0.6);
+  color: #cfe0ff;
+  background: rgba(143, 180, 255, 0.14);
+}
+
+/* 播完后的「回到这棵树继续学」 */
+.replay-continue {
+  padding: 9px 18px;
+  border-radius: 999px;
+  border: 1px solid rgba(125, 211, 168, 0.45);
+  background: rgba(125, 211, 168, 0.12);
+  color: #bde7d2;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.2s, border-color 0.2s, transform 0.15s;
+}
+.replay-continue:hover { background: rgba(125, 211, 168, 0.2); border-color: rgba(125, 211, 168, 0.7); transform: translateY(-1px); }
+.replay-continue[hidden] { display: none; }

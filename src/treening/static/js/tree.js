@@ -100,6 +100,38 @@
     personaModalConfirm: $("#persona-modal-confirm"), personaModalBackdrop: $("#persona-modal"),
   };
 
+  // 生长回放入口：同树双舞台——点开在当前画布上盖一层全屏剧场，
+  // 播的是这棵树真实的节点与生长顺序；退出后编辑器原样还原。
+  let replayTheater = null;
+  function openReplayOverlay() {
+    const overlay = document.querySelector("#replay-overlay");
+    if (!overlay || !State.sessionId) return;
+    if (typeof window.createReplayTheater !== "function") return;
+    if (replayTheater) { replayTheater.destroy(); replayTheater = null; }
+    overlay.hidden = false;
+    overlay.setAttribute("aria-hidden", "false");
+    document.body.classList.add("has-replay-overlay");
+    replayTheater = window.createReplayTheater(overlay, {
+      sessionId: State.sessionId,
+      onExit: closeReplayOverlay,
+      onContinue: closeReplayOverlay,
+    });
+  }
+  function closeReplayOverlay() {
+    if (replayTheater) { replayTheater.destroy(); replayTheater = null; }
+    const overlay = document.querySelector("#replay-overlay");
+    if (overlay) {
+      overlay.hidden = true;
+      overlay.setAttribute("aria-hidden", "true");
+    }
+    document.body.classList.remove("has-replay-overlay");
+  }
+  function syncReplayHref(sessionId) {
+    const link = document.querySelector("#replay-link");
+    if (!link) return;
+    link.disabled = !sessionId;
+  }
+
   let BRANCH_LABELS = {
     question: "起点问题", followup: "追问", check: "验收", custom: "其他",
     correction: "其他",
@@ -386,6 +418,7 @@
       clearPendingJobs();
       State.foldedBranchesBySession.delete(deletedSessionId);
       State.sessionId = null;
+      syncReplayHref(null);
       const history = await API.listSessions();
       const next = (Array.isArray(history.sessions) ? history.sessions : [])
         .find((sessionItem) => sessionItem.id !== deletedSessionId);
@@ -717,6 +750,7 @@
     const concealed = State.concealedNodes.has(node.id);
     DOM.readerRole.textContent = node.role === "user" ? "你" : "Treening";
     DOM.readerBranch.textContent = BRANCH_LABELS[branch] || "学习回应";
+    DOM.readerBranch.dataset.branch = branch;  // 阅读栏分支标签按真实分支着色（验收/追问/其他）
     DOM.readerDepth.textContent = `深度 ${displayDepth(node.id)}`;
     DOM.readerContent.textContent = node.content;
     DOM.readerContent.hidden = concealed;
@@ -725,6 +759,7 @@
     if (concealed) {
       DOM.readerRole.textContent = "";
       DOM.readerBranch.textContent = "";
+      delete DOM.readerBranch.dataset.branch;
       DOM.readerDepth.textContent = "";
       DOM.readerMeta.textContent = "";
     }
@@ -2537,6 +2572,7 @@
         State.sessionId = result.session_id;
         activateFoldSession(State.sessionId);
       }
+      syncReplayHref(State.sessionId);
       setQuota(result.quota); appendNode(result.user_node); DOM.messageInput.value = "";
       State.pendingJobs.set(result.job_id, true); appendLoading(result.job_id); window.setTimeout(() => pollJob(result.job_id, State.sessionGeneration), 200);
     } catch (error) {
@@ -2752,6 +2788,7 @@
   async function loadSession() {
     const result = await API.getSession();
     State.sessionId = result.session?.id || null;
+    syncReplayHref(State.sessionId);
     if (State.sessionId) activateFoldSession(State.sessionId);
     else State.foldedBranches = new Set();
     State.pendingEmptySession = false;
@@ -2786,6 +2823,7 @@
     State.sessionGeneration += 1; clearPendingJobs();
     State.pendingEmptySession = false;
     State.sessionId = result.session.id; activateFoldSession(State.sessionId); State.maxBranches = result.max_branches || State.maxBranches;
+    syncReplayHref(State.sessionId);
     applyBranchLabels(result.branch_labels);
     applyLayoutPrefs(result.layout_prefs);
     State.sessionTitle = result.session.title || result.session.root_question || "";
@@ -2885,6 +2923,7 @@
     State.sessionGeneration += 1;
     clearPendingJobs();
     State.sessionId = result.session.id; activateFoldSession(State.sessionId); State.maxBranches = result.max_branches || State.maxBranches;
+    syncReplayHref(State.sessionId);
     applyBranchLabels(result.branch_labels);
     applyLayoutPrefs(result.layout_prefs);
     State.sessionTitle = "";
@@ -2997,5 +3036,16 @@
   }, 60000);
 
   loadPersonaPresets();
-  setupCanvas(); setupResponsivePanels(); renderGraph(); loadSession();
+  setupCanvas(); setupResponsivePanels(); renderGraph();
+
+  // 生长回放入口：当前画布上盖一层全屏剧场（openReplayOverlay 内会守卫无主题）
+  document.querySelector("#replay-link")?.addEventListener("click", openReplayOverlay);
+
+  // 深链接：/?session=<id> 直达指定主题（回放页「继续学」的落地地址）
+  const urlSession = new URLSearchParams(location.search).get("session");
+  if (urlSession) {
+    loadSessionById(urlSession).catch(() => loadSession());
+  } else {
+    loadSession();
+  }
 })();
