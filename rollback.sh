@@ -13,6 +13,7 @@ set -euo pipefail
 SERVER="${TREENING_SERVER:-root@47.243.139.50}"
 DEPLOY_DIR="/home/admin/treening-server"
 BASE_IMAGE="treening-server-treening"
+LEGACY_BASE_IMAGE="textree-server-textree"
 LATEST="${BASE_IMAGE}:latest"
 SSH_OPTS="-o BatchMode=yes -o ConnectTimeout=15 -o ServerAliveInterval=10"
 
@@ -20,7 +21,7 @@ REMOTE() { ssh $SSH_OPTS "$SERVER" "$@"; }
 
 if [ "${1:-}" = "--list" ]; then
   echo "==> 服务器可用镜像："
-  REMOTE "docker images | grep '^${BASE_IMAGE}'"
+  REMOTE "docker images | grep -E '^(${BASE_IMAGE}|${LEGACY_BASE_IMAGE})'"
   echo ""
   echo "==> 部署历史（deploys.log）："
   REMOTE "cat ${DEPLOY_DIR}/deploys.log 2>/dev/null || echo '(无部署日志)'"
@@ -43,17 +44,31 @@ fi
 
 GZ="treening-${TAG}.img.gz"
 
-# 优先从不可变产物加载（保证与发布时完全一致）；镜像仍在则直接复用
-if REMOTE "docker image inspect ${BASE_IMAGE}:${TAG} >/dev/null 2>&1"; then
-  echo "   镜像已存在，直接复用"
-else
-  echo "   镜像不存在，从 ${GZ} 重新加载"
-  REMOTE "docker load -i ${DEPLOY_DIR}/${GZ}"
+# 定位目标镜像：新名优先，其次改名前的旧名（历史镜像/.img.gz 内嵌 textree-server-textree 标签）
+TARGET_IMAGE="${BASE_IMAGE}"
+if ! REMOTE "docker image inspect ${TARGET_IMAGE}:${TAG} >/dev/null 2>&1"; then
+  if REMOTE "docker image inspect ${LEGACY_BASE_IMAGE}:${TAG} >/dev/null 2>&1"; then
+    echo "   使用改名前的旧镜像 ${LEGACY_BASE_IMAGE}:${TAG}"
+    TARGET_IMAGE="${LEGACY_BASE_IMAGE}"
+  else
+    echo "   镜像不存在，从 ${GZ} 重新加载"
+    REMOTE "docker load -i ${DEPLOY_DIR}/${GZ}"
+    # 历史 .img.gz 内嵌旧标签，加载后按旧名探测
+    if REMOTE "docker image inspect ${TARGET_IMAGE}:${TAG} >/dev/null 2>&1"; then
+      :
+    elif REMOTE "docker image inspect ${LEGACY_BASE_IMAGE}:${TAG} >/dev/null 2>&1"; then
+      echo "   加载产物为旧名标签 ${LEGACY_BASE_IMAGE}:${TAG}"
+      TARGET_IMAGE="${LEGACY_BASE_IMAGE}"
+    else
+      echo "错误：加载后仍找不到镜像 ${BASE_IMAGE}:${TAG} 或 ${LEGACY_BASE_IMAGE}:${TAG}" >&2
+      exit 1
+    fi
+  fi
 fi
 
-echo "==> 替换 latest 并重建容器"
+echo "==> 替换 latest 并重建容器（${TARGET_IMAGE}:${TAG}）"
 REMOTE "cd ${DEPLOY_DIR} \
-  && docker tag ${BASE_IMAGE}:${TAG} ${LATEST} \
+  && docker tag ${TARGET_IMAGE}:${TAG} ${LATEST} \
   && docker compose up -d --force-recreate \
   && echo \"# \$(date -u +%Y-%m-%dT%H:%M:%SZ) rollback -> ${TAG}\" >> ${DEPLOY_DIR}/deploys.log"
 
