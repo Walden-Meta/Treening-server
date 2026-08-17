@@ -25,7 +25,7 @@ from ..persona_presets import (
     VALID_PERSONA_KEYS,
     persona_presets,
 )
-from ..services.exporter import render_export
+from ..services.exporter import export_basename, render_export
 from ..services.methodology import Methodology
 from ..services.provider import TreeProvider, TreeProviderError, is_retryable_provider_error
 from ..services.store import TreeStore
@@ -606,6 +606,20 @@ def update_node_layout(session_id: str, node_id: str):
     return jsonify({"node": updated, "layout": layout})
 
 
+@api_bp.route("/sessions/<session_id>/layouts/clear", methods=["POST"])
+def clear_session_layouts(session_id: str):
+    """「紧凑排版」：清除该主题全部节点的已保存布局（尺寸/位置），恢复默认。
+
+    卡片回到默认尺寸、位置按默认间距紧凑重排；其它主题不受影响。
+    """
+    user_id = _identity()
+    store = _store()
+    if not store.get_session(session_id, user_id):
+        return jsonify({"error": "主题不存在", "code": "tree_session_not_found"}), 404
+    cleared = store.clear_session_layouts(session_id, user_id)
+    return jsonify({"ok": True, "cleared": cleared})
+
+
 @api_bp.route("/sessions/<session_id>/nodes/<node_id>", methods=["DELETE"])
 def delete_node(session_id: str, node_id: str):
     user_id = _identity()
@@ -888,8 +902,7 @@ def export_session(session_id: str):
         return jsonify({"error": str(exc), "code": "tree_export_invalid"}), 400
     except ImportError:
         return jsonify({"error": "DOCX 导出依赖未安装", "code": "tree_docx_unavailable"}), 503
-    title = quiz_session.get("title") or quiz_session.get("root_question") or "tree-session"
-    filename = re.sub(r"[^\w\-一-鿿]+", "-", title).strip("-")[:70] or "tree-session"
+    filename = export_basename(quiz_session, scope)
     return send_file(
         BytesIO(content),
         mimetype=mimetype,

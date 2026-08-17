@@ -1,8 +1,8 @@
 services:
-  textree:
-    image: textree-server-textree:latest
+  treening:
+    image: treening-server-treening:latest
     build: .
-    container_name: textree
+    container_name: treening
     restart: unless-stopped
     ports:
       - "${TREENING_HOST_PORT:-5001}:5000"
@@ -11,9 +11,9 @@ services:
       TREENING_API_KEY: ${TREENING_API_KEY:-}
       TREENING_API_URL: ${TREENING_API_URL:-https://api.deepseek.com/chat/completions}
       TREENING_MODEL: ${TREENING_MODEL:-deepseek-chat}
-      # 配额：默认启用、普通用户每日 20 次（管理员不限；可在管理面板按人覆盖）
+      # 配额：默认启用、普通用户每日 10 次（管理员不限；可在管理面板按人覆盖）
       TREENING_QUOTA_ENABLED: ${TREENING_QUOTA_ENABLED:-true}
-      TREENING_MAX_QUESTIONS: ${TREENING_MAX_QUESTIONS:-20}
+      TREENING_MAX_QUESTIONS: ${TREENING_MAX_QUESTIONS:-10}
       # 提问并发："10跑5排" = 10 个任务并行调 LLM + 5 个排队（全局在途 15，每用户 2）
       TREENING_JOB_EXECUTOR_WORKERS: ${TREENING_JOB_EXECUTOR_WORKERS:-10}
       TREENING_MAX_GLOBAL_INFLIGHT: ${TREENING_MAX_GLOBAL_INFLIGHT:-15}
@@ -31,7 +31,7 @@ services:
         max-size: "20m"
         max-file: "5"
     volumes:
-      - ./docker-data/textree:/app/data
+      - ./docker-data/treening:/app/data
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:5000/api/health"]
       interval: 30s

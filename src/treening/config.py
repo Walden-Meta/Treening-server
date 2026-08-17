@@ -130,9 +130,9 @@ class Config:
         # 后台任务执行器并发数：真正并行执行（调 LLM）的任务数，其余在池内排队
         self.JOB_EXECUTOR_WORKERS: int = int(_env("JOB_EXECUTOR_WORKERS", "10"))
 
-        # 配额（默认启用；普通用户每人每日默认 20 次，管理员不限，可在管理面板按人覆盖）
+        # 配额（默认启用；普通用户每人每日默认 10 次，管理员不限，可在管理面板按人覆盖）
         self.QUOTA_ENABLED: bool = _env("QUOTA_ENABLED", "true").lower() in {"1", "true", "yes"}
-        self.MAX_QUESTIONS: int = int(_env("MAX_QUESTIONS", "20"))
+        self.MAX_QUESTIONS: int = int(_env("MAX_QUESTIONS", "10"))
 
         # 分支（运行时覆盖值；默认来自 methodology/rules.yaml）
         self.MAX_BRANCHES: int = int(_env("MAX_BRANCHES", "3"))

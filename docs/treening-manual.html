@@ -211,7 +211,7 @@ pre code { background: transparent; padding: 0; color: inherit; }
 <li><strong>切换</strong>：左栏「学习轨迹」点任意一条；</li>
 <li><strong>历史分组</strong>：自动分「今天 / 最近 7 天 / 更早」；</li>
 <li><strong>当前主题</strong>：顶部显示主题名。</li>
-<li><strong>每日配额</strong>：普通用户每日有提问次数上限（默认 20 次，管理员可在管理面板按人调整），顶部会显示剩余次数，用完提示明日再来。</li>
+<li><strong>每日配额</strong>：普通用户每日有提问次数上限（默认 10 次，管理员可在管理面板按人调整），顶部会显示剩余次数，用完提示明日再来。</li>
 </ul>
 <h2>模块 6：三出口分支（核心规则）</h2>
 <ul>
@@ -474,7 +474,7 @@ pre code { background: transparent; padding: 0; color: inherit; }
 </tr>
 <tr>
 <td>配额</td>
-<td>普通用户每日默认 20 次提问，管理员不限，可按人覆盖</td>
+<td>普通用户每日默认 10 次提问，管理员不限，可按人覆盖</td>
 <td>控制 API 成本、防止滥用</td>
 </tr>
 <tr>
@@ -496,7 +496,7 @@ pre code { background: transparent; padding: 0; color: inherit; }
 </table>
 <h2>六、配额的设计</h2>
 <ul>
-<li><strong>默认值</strong>：普通用户每人每日 20 次提问，够日常学习也控制成本；</li>
+<li><strong>默认值</strong>：普通用户每人每日 10 次提问，够日常学习也控制成本；</li>
 <li><strong>管理员</strong>：恒不限额，避免被日常调试误伤；</li>
 <li><strong>按人覆盖</strong>：管理员面板里每位用户可单独设为"留空=默认 / 0=不限 / N=每日 N 次"；</li>
 <li><strong>用户体验</strong>：顶部实时显示剩余次数，用完温和提示，不打断已生成的内容。</li>
@@ -568,7 +568,7 @@ pre code { background: transparent; padding: 0; color: inherit; }
 </tr>
 <tr>
 <td>TREENING_MAX_QUESTIONS</td>
-<td>20</td>
+<td>10</td>
 <td>普通用户每日默认次数</td>
 </tr>
 <tr>

@@ -10,7 +10,7 @@
 set -euo pipefail
 
 REPO_DIR=/root/treening-backup-repo
-SRC=/home/admin/textree-server/docker-data/textree/tree.db
+SRC=/home/admin/treening-server/docker-data/treening/tree.db
 REPO_URL=git@github.com:Walden-Meta/Treening-backup.git
 SSH_KEY=/root/.ssh/treening_backup_ed25519
 GIT_SSH="ssh -i $SSH_KEY -o StrictHostKeyChecking=accept-new"

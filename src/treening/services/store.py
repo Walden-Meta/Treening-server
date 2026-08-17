@@ -771,6 +771,43 @@ class TreeStore:
             {"layout": layout},
         )
 
+    def clear_session_layouts(self, session_id: str, user_id: str) -> int:
+        """移除单个主题所有节点的已保存 layout（保留其它元数据）。
+
+        「紧凑排版」用：卡片恢复默认尺寸、位置按默认间距重排。
+        只清理本主题节点，其它主题的摆放不受影响。
+        """
+        with self._connection() as conn:
+            owned = conn.execute(
+                "SELECT 1 FROM quiz_sessions WHERE id = ? AND user_id = ?",
+                (session_id, user_id),
+            ).fetchone()
+            if not owned:
+                return 0
+            rows = conn.execute(
+                "SELECT id, metadata_json FROM quiz_nodes WHERE session_id = ?",
+                (session_id,),
+            ).fetchall()
+            count = 0
+            for row in rows:
+                try:
+                    metadata = json.loads(row["metadata_json"] or "{}")
+                except (ValueError, TypeError):
+                    continue
+                if not isinstance(metadata, dict) or "layout" not in metadata:
+                    continue
+                metadata.pop("layout", None)
+                conn.execute(
+                    "UPDATE quiz_nodes SET metadata_json = ? WHERE id = ?",
+                    (json.dumps(metadata, ensure_ascii=False), row["id"]),
+                )
+                count += 1
+            conn.execute(
+                "UPDATE quiz_sessions SET updated_at = ? WHERE id = ? AND user_id = ?",
+                (_now(), session_id, user_id),
+            )
+            return count
+
     def clear_user_layouts(self, user_id: str) -> int:
         """移除某用户所有节点的已保存 layout（保留 job_id/model 等其它元数据）。
 

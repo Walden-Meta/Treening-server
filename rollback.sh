@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# rollback.sh — textree 生产回滚脚本
+# rollback.sh — treening 生产回滚脚本
 #
 # 回滚基于 immutability 原则：服务器上保留的 treening-<TAG>.img.gz
 # 是不可变发布产物，按 TAG 精确还原该版本的镜像与代码状态。
@@ -11,8 +11,8 @@
 set -euo pipefail
 
 SERVER="${TREENING_SERVER:-root@47.243.139.50}"
-DEPLOY_DIR="/home/admin/textree-server"
-BASE_IMAGE="textree-server-textree"
+DEPLOY_DIR="/home/admin/treening-server"
+BASE_IMAGE="treening-server-treening"
 LATEST="${BASE_IMAGE}:latest"
 SSH_OPTS="-o BatchMode=yes -o ConnectTimeout=15 -o ServerAliveInterval=10"
 
@@ -61,14 +61,14 @@ echo "==> 等待容器健康（最多 120s）"
 healthy=0
 for _ in $(seq 1 40); do
   sleep 3
-  if REMOTE "docker inspect -f '{{if eq .State.Health.Status \"healthy\"}}H{{else}}B{{end}}' textree" 2>/dev/null | grep -q 'H'; then
+  if REMOTE "docker inspect -f '{{if eq .State.Health.Status \"healthy\"}}H{{else}}B{{end}}' treening" 2>/dev/null | grep -q 'H'; then
     healthy=1; break
   fi
 done
 
 if [ "$healthy" != "1" ]; then
   echo "✗ 回滚后容器未转健康，查看状态：" >&2
-  REMOTE "cd ${DEPLOY_DIR} && docker compose ps; echo '--- 最近日志 ---'; docker logs --tail 40 textree" >&2
+  REMOTE "cd ${DEPLOY_DIR} && docker compose ps; echo '--- 最近日志 ---'; docker logs --tail 40 treening" >&2
   exit 1
 fi
 

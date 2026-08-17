@@ -6,8 +6,8 @@
 <title>Treening · 学习空间</title>
 <link rel="icon" type="image/png" href="/static/img/logo.png">
 <script src="/static/js/theme.js?v=20260807-08"></script>
-<link rel="stylesheet" href="/static/css/tree.css?v=20260812-2">
-<link rel="stylesheet" href="/static/css/replay.css?v=20260812-7">
+<link rel="stylesheet" href="/static/css/tree.css?v=20260814-5">
+<link rel="stylesheet" href="/static/css/replay.css?v=20260813-4">
 </head>
 <body>
 <main class="quiz-shell">
@@ -18,10 +18,10 @@
       </a>
       <div class="header-intro">
         <h1>让一个问题，长出自己的路径</h1>
-        <p class="header-copy">每个回答固定保留三个出口：<span id="hc-check">验收</span>、<span id="hc-followup">追问</span>，以及一个由你命名的<span id="hc-custom">其他</span>分支。</p>
+        <p class="header-copy">每个回答之后，都有三条路可以继续走：<span id="hc-check">验收</span>、<span id="hc-followup">追问</span>，或是一条由你命名的<span id="hc-custom">其他</span>岔路。</p>
       </div>
       <div class="workspace-heading" aria-live="polite">
-        <h2 id="workspace-title">未命名学习主题</h2>
+        <h2 id="workspace-title">一棵还没起名的树</h2>
         <button class="persona-tag" id="persona-tag" type="button" hidden title="这棵树的陪伴者，点击可切换">
           <span class="persona-tag-dot" aria-hidden="true"></span>
           <span id="persona-tag-label">春宁</span>
@@ -33,15 +33,16 @@
         <label class="export-control">
           <span class="sr-only">导出范围</span>
           <select id="export-scope" aria-label="导出范围">
-            <option value="tree">完整知识树</option>
-            <option value="path">当前路径</option>
-            <option value="subtree">当前节点及后代</option>
+            <option value="tree">整棵树</option>
+            <option value="path">这一路</option>
+            <option value="subtree">这一支</option>
           </select>
           <span class="sr-only">导出格式</span>
           <select id="export-format" aria-label="导出格式">
             <option value="md">导出 Markdown</option>
             <option value="txt">导出 TXT</option>
             <option value="docx">导出 DOCX</option>
+            <option value="vault">导出 Obsidian 笔记</option>
           </select>
           <button class="text-button" id="export-button" type="button">下载</button>
         </label>
@@ -52,16 +53,16 @@
           </span>
         </button>
         <button class="button button-quiet" id="replay-link" type="button" title="把这棵树的成长过程放成一部小电影" disabled>▷ 回放</button>
-        <button class="button" id="new-session-button" type="button">新主题</button>
+        <button class="button" id="new-session-button" type="button">新开一棵树</button>
         <a class="button button-quiet" href="/setup" title="调整模型配置" id="setup-link">⚙ 配置</a>
         <a class="button button-quiet" href="/admin" title="管理员面板" id="admin-link" hidden>管理</a>
-        <button class="button button-quiet" id="logout-button" type="button" title="退出登录">登出</button>
+        <button class="button button-quiet" id="logout-button" type="button" title="退出登录">退出登录</button>
       </div>
     </header>
 
     <nav class="workspace-panel-switcher" aria-label="工作区面板">
-      <button class="button panel-toggle" id="history-panel-toggle" type="button" aria-controls="session-rail" aria-expanded="false">历史主题</button>
-      <button class="button panel-toggle reader-panel-toggle" id="reader-panel-toggle" type="button" aria-controls="reader-panel" aria-expanded="false">节点阅读</button>
+      <button class="button panel-toggle" id="history-panel-toggle" type="button" aria-controls="session-rail" aria-expanded="false">学过的主题</button>
+      <button class="button panel-toggle reader-panel-toggle" id="reader-panel-toggle" type="button" aria-controls="reader-panel" aria-expanded="false">读全文</button>
     </nav>
     <button class="panel-backdrop" id="panel-backdrop" type="button" aria-label="关闭面板" hidden></button>
 
@@ -97,10 +98,14 @@
           </div>
           <div class="canvas-toolbar canvas-tl" aria-label="视图">
             <div class="view-switch" role="group" aria-label="知识树视图">
-              <button class="view-option is-selected" id="tree-view-button" type="button" aria-pressed="true">完整树</button>
+              <button class="view-option is-selected" id="tree-view-button" type="button" aria-pressed="true">整棵树</button>
               <button class="view-option" id="nearby-view-button" type="button" aria-pressed="false">邻近分支</button>
-              <button class="view-option" id="path-view-button" type="button" aria-pressed="false">当前路径</button>
+              <button class="view-option" id="path-view-button" type="button" aria-pressed="false">这一路</button>
             </div>
+          </div>
+          <div class="node-search" id="node-search" role="search" hidden>
+            <input id="node-search-input" type="search" placeholder="搜索节点（Ctrl+F）" aria-label="搜索节点" autocomplete="off" spellcheck="false">
+            <ul class="node-search-results" id="node-search-results" hidden></ul>
           </div>
           <div class="bulk-visibility-controls" aria-label="节点显示控制">
             <button class="text-button" id="conceal-all-button" type="button" disabled>全部隐藏</button>
@@ -112,7 +117,8 @@
             <button class="icon-button" id="zoom-out-button" type="button" title="缩小">−</button>
             <span id="zoom-label">100%</span>
             <button class="icon-button" id="zoom-in-button" type="button" title="放大">＋</button>
-            <button class="text-button" id="fit-graph-button" type="button">回到全图</button>
+            <button class="text-button" id="fit-graph-button" type="button">看到整棵树</button>
+            <button class="text-button" id="compact-layout-button" type="button" title="卡片恢复默认尺寸，节点按默认间距紧凑重排（可撤销）">紧凑排版</button>
           </div>
           <aside class="minimap" id="minimap" hidden aria-label="知识树总览">
             <div class="minimap-title">OVERVIEW</div>
@@ -194,28 +200,28 @@
           </section>
           <section class="reader-context" id="reader-context" aria-label="节点上下文">
             <div class="reader-context-block">
-              <span class="reader-context-label">当前路径</span>
+              <span class="reader-context-label">来时的路</span>
               <p id="reader-path">—</p>
             </div>
             <div class="reader-context-grid">
               <div class="reader-context-block">
-                <span class="reader-context-label">父节点</span>
-                <p id="reader-parent">这是起点节点</p>
+                <span class="reader-context-label">上一问</span>
+                <p id="reader-parent">这是起点</p>
               </div>
               <div class="reader-context-block">
-                <span class="reader-context-label">后代</span>
-                <p id="reader-descendants">0 个节点</p>
+                <span class="reader-context-label">这一支</span>
+                <p id="reader-descendants">0 条分支</p>
               </div>
             </div>
             <div class="reader-context-actions">
-              <button class="text-button" id="reader-fold-button" type="button">收起后代</button>
-              <button class="text-button" id="reader-conceal-button" type="button">隐藏内容</button>
-              <button class="text-button" id="reader-export-path-button" type="button">导出路径</button>
+              <button class="text-button" id="reader-fold-button" type="button">折起这一支</button>
+              <button class="text-button" id="reader-conceal-button" type="button">先盖住</button>
+              <button class="text-button" id="reader-export-path-button" type="button">导出这一路</button>
             </div>
           </section>
           <div class="reader-footer">
             <span id="reader-meta">完整文本阅读</span>
-            <button class="text-button" id="reader-focus-button" type="button">定位节点</button>
+            <button class="text-button" id="reader-focus-button" type="button">在树里找到它</button>
           </div>
         </div>
       </aside>
@@ -241,7 +247,7 @@
 <script src="/static/js/view-state.js?v=20260804-3" defer></script>
 <script src="/static/js/layout-state.js?v=20260804-2" defer></script>
 <script src="/static/js/history-state.js?v=20260804-2" defer></script>
-<script src="/static/js/replay.js?v=20260812-7" defer></script>
-<script src="/static/js/tree.js?v=20260812-5" defer></script>
+<script src="/static/js/replay.js?v=20260813-4" defer></script>
+<script src="/static/js/tree.js?v=20260814-5" defer></script>
 </body>
 </html>

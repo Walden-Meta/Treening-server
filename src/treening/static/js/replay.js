@@ -77,6 +77,21 @@
       </div>
       <div class="replay-detail-body" id="replay-detail-body"></div>
     </div>
+    <div class="replay-review" id="replay-review" hidden>
+      <button class="replay-review-close" id="replay-review-close" type="button" aria-label="退出复习" title="退出复习">×</button>
+      <div class="replay-review-head">
+        <span class="replay-review-eyebrow">复习</span>
+        <span class="replay-review-progress" id="replay-review-progress">回答 1 / 1</span>
+      </div>
+      <div class="replay-review-question" id="replay-review-question"></div>
+      <div class="replay-review-answer" id="replay-review-answer" hidden>
+        <div class="replay-review-answer-body" id="replay-review-answer-body"></div>
+      </div>
+      <div class="replay-review-actions">
+        <button class="replay-review-reveal" id="replay-review-reveal" type="button">展开答案</button>
+        <button class="replay-review-next" id="replay-review-next" type="button" hidden>下一个 →</button>
+      </div>
+    </div>
   </main>
   <footer class="replay-controls">
     <label class="replay-picker" id="replay-picker-wrap">
@@ -88,6 +103,7 @@
         <button class="replay-mode-btn is-active" id="replay-mode-summary" type="button" title="卡片显示隐藏后的摘要">摘要</button>
         <button class="replay-mode-btn" id="replay-mode-full" type="button" title="卡片显示完整内容（点击卡片可看全文）">全文</button>
       </div>
+      <button class="replay-review-toggle" id="replay-review-toggle" type="button" title="进入复习：沿路径逐对问答回忆">复习</button>
       <button class="replay-btn replay-btn-play" id="replay-play" type="button" title="播放 / 暂停" aria-label="播放 / 暂停">
         <svg id="replay-play-icon" viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M8 5.5v13l11-6.5z"/></svg>
         <svg id="replay-pause-icon" viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true" hidden><path d="M7 5h3.4v14H7zM13.6 5H17v14h-3.6z"/></svg>
@@ -200,6 +216,15 @@
       detailRole: $("#replay-detail-role"),
       detailTag: $("#replay-detail-tag"),
       detailBody: $("#replay-detail-body"),
+      review: $("#replay-review"),
+      reviewProgress: $("#replay-review-progress"),
+      reviewQuestion: $("#replay-review-question"),
+      reviewAnswer: $("#replay-review-answer"),
+      reviewAnswerBody: $("#replay-review-answer-body"),
+      reviewReveal: $("#replay-review-reveal"),
+      reviewNext: $("#replay-review-next"),
+      reviewClose: $("#replay-review-close"),
+      reviewToggle: $("#replay-review-toggle"),
     };
     if (!opts.picker && dom.pickerWrap) dom.pickerWrap.hidden = true;
     const exit = opts.onExit || (() => { location.href = "/"; });
@@ -235,6 +260,9 @@
       missingNodes: [],
       backfillRunning: false,
       backfillSession: null,
+      reviewActive: false,
+      reviewAnswerId: null,
+      reviewRevealed: false,
     };
 
     let V_GAP = 200;
@@ -613,6 +641,10 @@
       S.bloomed.add(node.id);
       S.lastBloomId = node.id;
       const card = S.cards.get(node.id);
+      card.el.classList.remove("is-appearing");
+      // 强制回流：确保「清除 is-appearing」已生效，再加回才能让 r-bloom 动画重新播放。
+      // 否则清舞台后立即重加同名 class，浏览器会把两次变更合并，动画不重启（卡片直接定格）。
+      void card.el.offsetWidth;
       card.el.classList.add("is-appearing");
       // 有父节点：描边 + 火花
       const edge = S.edges.get(node.id);
@@ -630,7 +662,7 @@
       }
       // 计数
       dom.counterNow.textContent = String(S.bloomed.size);
-      if (S.bloomed.size === S.seq.length) finishReplay();
+      if (S.bloomed.size === S.seq.length && !S.reviewActive) finishReplay();
     }
 
     // 框住「最近开花节点 + 父节点 + 邻近」，保持可读缩放，
@@ -662,9 +694,18 @@
     }
 
     function advance(now) {
+      // 复习模式复用正常回放的生长动画：按时间轴逐节点 bloom，
+      // 遇到「回答节点」就停下，交给复习面板展开查看。
+      let reviewHit = null;
       for (const n of S.seq) {
         if (S.bloomed.has(n.id)) continue;
-        if (n._start <= now) bloomNode(n);
+        if (n._start <= now) {
+          bloomNode(n);
+          if (S.reviewActive && n.role === "assistant") {
+            reviewHit = n;
+            break;
+          }
+        }
       }
       // 火花 / 描边进度
       S.edges.forEach((edge) => {
@@ -681,6 +722,7 @@
           edge.glow.setAttribute("stroke-opacity", "0.1");
         }
       });
+      if (reviewHit) pauseForReview(reviewHit);
     }
 
     function grownBBox() {
@@ -810,6 +852,13 @@
       S.backfillRunning = false;
       S.backfillSession = null;
       if (dom.missing) dom.missing.hidden = true;
+      // 退出复习态（若在复习中切主题）
+      S.reviewActive = false;
+      S.reviewAnswerId = null;
+      S.reviewRevealed = false;
+      if (dom.review) dom.review.hidden = true;
+      if (dom.reviewToggle) dom.reviewToggle.classList.remove("is-active");
+      syncReviewControls();
       resetTreeView();
       S.edges.clear();
       S.cards.clear();
@@ -929,6 +978,118 @@
       if (dom.detail) dom.detail.hidden = true;
     }
 
+    /* ── 复习模式：正常回放 + 回答处自动暂停，展开查看详情 ── */
+    function countReviewAnswers() {
+      let n = 0;
+      for (const x of S.seq) if (x.role === "assistant") n++;
+      return n;
+    }
+
+    function reviewAnswerIndex(node) {
+      let i = 0;
+      for (const x of S.seq) {
+        if (x.role === "assistant") {
+          i++;
+          if (x.id === node.id) return i;
+        }
+      }
+      return i;
+    }
+
+    function syncReviewControls() {
+      // 复习中冻结主播放/进度/模式，只留复习面板与退出（follow 保持可用，便于跟镜头）
+      const dis = S.reviewActive;
+      [dom.play, dom.restart].forEach((b) => { if (b) b.disabled = dis; });
+      if (dom.timeline) dom.timeline.style.pointerEvents = dis ? "none" : "";
+      if (dom.speed) dom.speed.disabled = dis;
+      if (dom.modeSummary) dom.modeSummary.disabled = dis;
+      if (dom.modeFull) dom.modeFull.disabled = dis;
+    }
+
+    function showReviewPanel(answerNode) {
+      const questionNode = answerNode.parent_id ? S.nodes.get(answerNode.parent_id) : null;
+      dom.reviewQuestion.textContent = questionNode ? (questionNode.content || "") : "";
+      dom.reviewProgress.textContent =
+        "回答 " + reviewAnswerIndex(answerNode) + " / " + countReviewAnswers();
+      dom.reviewAnswer.hidden = true;
+      dom.reviewAnswerBody.textContent = "";
+      dom.reviewReveal.hidden = false;
+      dom.reviewReveal.textContent = "展开答案";
+      dom.reviewNext.hidden = true;
+    }
+
+    function pauseForReview(answerNode) {
+      // 到回答节点自动暂停：不冻结 CSS 动画，让刚长出的回答卡把 r-bloom 播完
+      S.playing = false;
+      S.pausedByUser = false;
+      syncPlayIcon(false);
+      dom.world.classList.remove("is-paused");
+      S.reviewAnswerId = answerNode.id;
+      S.reviewRevealed = false;
+      dom.review.hidden = false;
+      showReviewPanel(answerNode);
+    }
+
+    function reviewReveal() {
+      const node = S.reviewAnswerId ? S.nodes.get(S.reviewAnswerId) : null;
+      if (!node || S.reviewRevealed) return;
+      S.reviewRevealed = true;
+      dom.reviewAnswerBody.textContent = node.content || "";
+      dom.reviewAnswer.hidden = false;
+      dom.reviewReveal.hidden = true;
+      dom.reviewNext.hidden = false;
+      dom.reviewNext.textContent =
+        reviewAnswerIndex(node) >= countReviewAnswers() ? "完成复习 →" : "下一个 →";
+      if (dom.reviewAnswerBody) dom.reviewAnswerBody.scrollTop = 0;
+    }
+
+    function reviewNext() {
+      const node = S.reviewAnswerId ? S.nodes.get(S.reviewAnswerId) : null;
+      const isLast = node && reviewAnswerIndex(node) >= countReviewAnswers();
+      if (isLast) { exitReview(); return; }
+      // 收起面板，继续用正常回放动画走到下一个回答节点
+      S.reviewAnswerId = null;
+      S.reviewRevealed = false;
+      dom.review.hidden = true;
+      dom.reviewAnswer.hidden = true;
+      S.follow = true;
+      syncFollowBtn();
+      setPlaying(true);
+    }
+
+    function enterReview() {
+      if (!S.seq.length) return;
+      S.reviewActive = true;
+      S.reviewAnswerId = null;
+      S.reviewRevealed = false;
+      hintHide();
+      if (dom.continueBtn) dom.continueBtn.hidden = true;
+      if (dom.detail) dom.detail.hidden = true;
+      if (dom.missing) dom.missing.hidden = true;
+      if (dom.reviewToggle) dom.reviewToggle.classList.add("is-active");
+      syncReviewControls();
+      // 复用正常回放：从种子重新播放，生长动画全程一致
+      resetTreeView();
+      S.follow = true;
+      syncFollowBtn();
+      setPlaying(true);
+    }
+
+    function exitReview() {
+      S.reviewActive = false;
+      S.reviewAnswerId = null;
+      S.reviewRevealed = false;
+      S.playing = false;
+      S.pausedByUser = false;
+      syncPlayIcon(false);
+      dom.world.classList.remove("is-paused");
+      if (dom.review) dom.review.hidden = true;
+      if (dom.reviewToggle) dom.reviewToggle.classList.remove("is-active");
+      syncReviewControls();
+      // 回到全貌，便于继续看回放或回到树继续学
+      seekTo(1);
+    }
+
     /* ── 事件：控制条 ── */
     dom.play.addEventListener("click", onPlayClick);
     dom.restart.addEventListener("click", replay);
@@ -945,6 +1106,17 @@
     dom.modeSummary.addEventListener("click", () => applyContentMode("summary"));
     dom.modeFull.addEventListener("click", () => applyContentMode("full"));
     dom.missingGo.addEventListener("click", startBackfill);
+    dom.reviewToggle.addEventListener("click", () => {
+      if (S.reviewActive) exitReview();
+      else enterReview();
+    });
+    dom.reviewReveal.addEventListener("click", reviewReveal);
+    dom.reviewNext.addEventListener("click", reviewNext);
+    dom.reviewClose.addEventListener("click", exitReview);
+    // 复习面板在剧场内，拦截 pointerdown 以免触发画布拖拽
+    if (dom.review) dom.review.addEventListener("pointerdown", (e) => e.stopPropagation());
+    // 拦截滚轮冒泡到剧场：答案文本框需原生上下滚动，不能被画布缩放吃掉
+    if (dom.review) dom.review.addEventListener("wheel", (e) => e.stopPropagation(), { passive: true });
 
     dom.timeline.addEventListener("click", (e) => {
       const rect = dom.timeline.getBoundingClientRect();
@@ -959,8 +1131,13 @@
     });
 
     function onKeyDown(e) {
-      if (e.key === "Escape") { hideDetail(); return; }
+      if (e.key === "Escape") {
+        if (S.reviewActive) { exitReview(); return; }
+        hideDetail();
+        return;
+      }
       if (e.key === " " && e.target !== dom.select && e.target !== dom.speed) {
+        if (S.reviewActive) return;  // 复习中空格交给面板按钮，不触发播放
         if (!dom.timeline.matches(":focus")) { e.preventDefault(); onPlayClick(); }
       }
     }
@@ -1066,6 +1243,7 @@
 
     /* ── 销毁：画布内嵌模式退出时调用 ── */
     function destroy() {
+      S.reviewActive = false;  // 复习态随舞台销毁一并失效
       cancelAnimationFrame(S.raf);
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("resize", onResize);

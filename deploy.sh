@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# deploy.sh — textree 生产发布脚本
+# deploy.sh — treening 生产发布脚本
 #
 # 链路：本地 docker build（打版本 tag）→ 记录 Image ID（回滚锚点）
 #      → docker save | gzip → scp → 远端 docker load → tag latest
@@ -14,8 +14,8 @@
 set -euo pipefail
 
 SERVER="${TREENING_SERVER:-root@47.243.139.50}"
-DEPLOY_DIR="/home/admin/textree-server"
-BASE_IMAGE="textree-server-textree"
+DEPLOY_DIR="/home/admin/treening-server"
+BASE_IMAGE="treening-server-treening"
 LATEST="${BASE_IMAGE}:latest"
 SSH_OPTS="-o BatchMode=yes -o ConnectTimeout=15 -o ServerAliveInterval=10"
 GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo nosha)"
@@ -63,14 +63,14 @@ echo "==> [6/6] 等待容器健康（最多 120s）"
 healthy=0
 for _ in $(seq 1 40); do
   sleep 3
-  if REMOTE "docker inspect -f '{{if eq .State.Health.Status \"healthy\"}}H{{else}}B{{end}}' textree" 2>/dev/null | grep -q 'H'; then
+  if REMOTE "docker inspect -f '{{if eq .State.Health.Status \"healthy\"}}H{{else}}B{{end}}' treening" 2>/dev/null | grep -q 'H'; then
     healthy=1; break
   fi
 done
 
 if [ "$healthy" != "1" ]; then
   echo "✗ 容器 120s 内未转健康，回滚前状态如下：" >&2
-  REMOTE "cd ${DEPLOY_DIR} && docker compose ps; echo '--- 最近日志 ---'; docker logs --tail 40 textree" >&2
+  REMOTE "cd ${DEPLOY_DIR} && docker compose ps; echo '--- 最近日志 ---'; docker logs --tail 40 treening" >&2
   echo "已部署（镜像已加载），但未通过健康检查。需要回滚请执行： ./rollback.sh" >&2
   exit 1
 fi

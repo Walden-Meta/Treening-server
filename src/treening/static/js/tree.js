@@ -87,6 +87,7 @@
     readerDescendants: $("#reader-descendants"), readerFoldButton: $("#reader-fold-button"),
     readerConcealButton: $("#reader-conceal-button"), readerExportPathButton: $("#reader-export-path-button"),
     readerFocusButton: $("#reader-focus-button"), readerRevealButton: $("#reader-reveal-button"),
+    nodeSearchInput: $("#node-search-input"), nodeSearchResults: $("#node-search-results"), nodeSearch: $("#node-search"),
     sessionRail: $("#session-rail"), historyPanelToggle: $("#history-panel-toggle"),
     readerPanelToggle: $("#reader-panel-toggle"), panelBackdrop: $("#panel-backdrop"),
     railCollapseToggle: $("#rail-collapse-toggle"),
@@ -177,6 +178,7 @@
     updateNodeLayout(sessionId, nodeId, layout) { return this.fetchJson(`/api/quiz/sessions/${encodeURIComponent(sessionId)}/nodes/${encodeURIComponent(nodeId)}/layout`, {
       method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(layout),
     }); },
+    clearSessionLayouts(sessionId) { return this.fetchJson(`/api/quiz/sessions/${encodeURIComponent(sessionId)}/layouts/clear`, { method: "POST" }); },
     deleteNode(sessionId, nodeId) { return this.fetchJson(`/api/quiz/sessions/${encodeURIComponent(sessionId)}/nodes/${encodeURIComponent(nodeId)}`, { method: "DELETE" }); },
     ask(payload) { return this.fetchJson("/api/quiz/ask", {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
@@ -242,7 +244,7 @@
     const marker = document.createElement("span"); marker.className = "session-item-marker";
     const content = document.createElement("span"); content.className = "session-item-content";
     const title = document.createElement("span"); title.className = "session-item-title";
-    title.textContent = item.title || item.root_question || "未命名学习主题";
+    title.textContent = item.title || item.root_question || "一棵还没起名的树";
     const meta = document.createElement("span"); meta.className = "session-item-meta";
     const count = document.createElement("span"); count.textContent = draft ? "尚未开始" : `${item.node_count || 0} 个节点`;
     const moment = document.createElement("span"); moment.textContent = formatSessionMoment(item.updated_at);
@@ -309,10 +311,10 @@
         try {
           const result = await API.updateSession(item.id, { title: value });
           item.title = result.session?.title || value;
-          titleEl.textContent = item.title || "未命名学习主题";
+          titleEl.textContent = item.title || "一棵还没起名的树";
           if (item.id === State.sessionId) {
             State.sessionTitle = item.title || "";
-            if (DOM.workspaceTitle) DOM.workspaceTitle.textContent = State.sessionTitle || "未命名学习主题";
+            if (DOM.workspaceTitle) DOM.workspaceTitle.textContent = State.sessionTitle || "一棵还没起名的树";
           }
           const itemButton = shell?.querySelector(".session-item");
           const metaText = shell?.querySelector(".session-item-meta")?.textContent?.trim() || "";
@@ -399,7 +401,7 @@
   async function deleteLearningSession(item, button) {
     if (!item?.id) return;
     const isActive = item.id === State.sessionId;
-    const title = item.title || item.root_question || "未命名学习主题";
+    const title = item.title || item.root_question || "一棵还没起名的树";
     const pendingWarning = isActive && State.pendingJobs.size
       ? "\n\n当前仍有学习请求正在处理，删除后也会一并停止显示。"
       : "";
@@ -770,12 +772,12 @@
     const descendantCount = Math.max(0, directSubtree(node.id).size - 1);
     if (DOM.readerPath) DOM.readerPath.textContent = pathNodes.map((item, index) => index === 0 ? "起点" : BRANCH_LABELS[normalizeBranch(item.branch_type)] || "回应").join(" → ");
     if (DOM.readerParent) DOM.readerParent.textContent = parent ? compactText(parent.content, 46) : "这是起点节点";
-    if (DOM.readerDescendants) DOM.readerDescendants.textContent = `${descendantCount} 个节点`;
+    if (DOM.readerDescendants) DOM.readerDescendants.textContent = `${descendantCount} 条分支`;
     if (DOM.readerFoldButton) {
       DOM.readerFoldButton.disabled = descendantCount === 0;
-      DOM.readerFoldButton.textContent = State.foldedBranches.has(node.id) ? "展开后代" : "收起后代";
+      DOM.readerFoldButton.textContent = State.foldedBranches.has(node.id) ? "展开这一支" : "折起这一支";
     }
-    if (DOM.readerConcealButton) DOM.readerConcealButton.textContent = concealed ? "显示内容" : "隐藏内容";
+    if (DOM.readerConcealButton) DOM.readerConcealButton.textContent = concealed ? "翻开看看" : "先盖住";
     if (!window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
       DOM.readerView.classList.remove("is-refreshing");
       void DOM.readerView.offsetWidth;
@@ -2305,6 +2307,8 @@
     const isPath = Graph.model?.viewState?.pathIds.includes(node.id) || false;
     const isNearby = State.viewMode === "nearby" && (Graph.model?.viewState?.nearbyIds.has(node.id) || false);
     element.dataset.branch = branch; element.classList.toggle("is-current", isCurrent); element.classList.toggle("is-path", isPath); element.classList.toggle("is-nearby", isNearby); element.classList.toggle("is-background", !isCurrent && !isPath && !isNearby); element.classList.toggle("is-concealed", concealed);
+    const verified = node.role === "assistant" && childNodes(node.id).some((c) => c.role === "user" && normalizeBranch(c.branch_type) === "check");
+    element.classList.toggle("is-verified", verified);
     element.classList.toggle("has-branches", childNodes(node.id).length > 1);
     element.classList.toggle("is-fold-root", isFoldRoot);
     element.classList.remove("is-expanded");
@@ -2428,7 +2432,7 @@
     DOM.studyApp?.classList.toggle("has-tree", State.nodes.length > 0 || State.pendingEmptySession);
     DOM.studyApp?.classList.toggle("is-large-tree", State.nodes.length > 80);
     DOM.viewport.dataset.visibleNodes = String(visibleCount);
-    if (DOM.workspaceTitle) DOM.workspaceTitle.textContent = State.sessionTitle || compactText(rootQuestion || "未命名学习主题");
+    if (DOM.workspaceTitle) DOM.workspaceTitle.textContent = State.sessionTitle || compactText(rootQuestion || "一棵还没起名的树");
     if (DOM.railDepth) DOM.railDepth.textContent = `深度 ${focusDepth}`;
     const liveIds = new Set(State.nodes.map((node) => node.id));
     const displayIds = new Set(Graph.model.nodes.map((node) => node.id));
@@ -2634,6 +2638,24 @@
     requestAnimationFrame(() => requestAnimationFrame(() => fitGraph()));
     window.setTimeout(() => { if (State.nodes.length) fitGraph(); }, 250);
   }
+  async function compactLayout() {
+    // 「紧凑排版」：卡片恢复默认尺寸、清除全部手动摆放，按默认间距紧凑重排。
+    if (!State.sessionId || !State.nodes.length) return;
+    pushCanvasUndo(captureCanvasSnapshot());  // 可撤销：撤销恢复旧摆放
+    try {
+      await API.clearSessionLayouts(State.sessionId);
+      // 内存态同步：去掉节点上的 layout 元数据（尺寸/位置回默认）
+      for (const node of State.nodes) {
+        if (node.metadata && typeof node.metadata === "object" && node.metadata.layout) {
+          delete node.metadata.layout;
+        }
+      }
+      renderGraph();
+      fitGraph();
+    } catch (error) {
+      appendError(error.message || "紧凑排版失败，请重试。");
+    }
+  }
   function centerOnNode(id) {
     const position = Graph.positions.get(id); if (!position) return;
     const rect = DOM.viewport.getBoundingClientRect();
@@ -2693,6 +2715,8 @@
     DOM.fitGraphButton.addEventListener("click", fitGraph); DOM.zoomInButton.addEventListener("click", () => zoomAt(DOM.viewport.getBoundingClientRect().left + DOM.viewport.clientWidth / 2, DOM.viewport.getBoundingClientRect().top + DOM.viewport.clientHeight / 2, 1.16));
     DOM.zoomOutButton.addEventListener("click", () => zoomAt(DOM.viewport.getBoundingClientRect().left + DOM.viewport.clientWidth / 2, DOM.viewport.getBoundingClientRect().top + DOM.viewport.clientHeight / 2, .86));
     DOM.undoCanvasButton?.addEventListener("click", undoCanvasAction);
+    const compactButton = document.querySelector("#compact-layout-button");
+    if (compactButton) compactButton.addEventListener("click", () => { compactLayout().catch((error) => appendError(error.message || "紧凑排版失败，请重试。")); });
     window.addEventListener("keydown", (event) => {
       const target = event.target instanceof Element ? event.target : null;
       if (!(event.ctrlKey || event.metaKey) || event.shiftKey || event.key.toLowerCase() !== "z") return;
@@ -2736,6 +2760,63 @@
         if (State.nodes.length) { renderGraph(); fitGraph(); }
       });
     }
+    setupNodeSearch();
+  }
+
+  // 节点搜索：Ctrl/Cmd+F（或 K）唤出浮层，输入即过滤，回车跳转，Esc 关闭
+  function setupNodeSearch() {
+    const input = DOM.nodeSearchInput;
+    if (!input) return;
+    const results = DOM.nodeSearchResults;
+    const panel = DOM.nodeSearch;
+    let matches = [];
+
+    const textOf = (node) => {
+      const summary = node.metadata && typeof node.metadata.summary === "string" ? node.metadata.summary : "";
+      return `${node.content || ""} ${summary}`.toLowerCase();
+    };
+    const clearHighlight = () => { for (const el of Graph.elements.values()) el.classList.remove("is-search-match"); };
+    const applyHighlight = () => { for (const [id, el] of Graph.elements) el.classList.toggle("is-search-match", matches.some((m) => m.id === id)); };
+    const close = () => { input.value = ""; matches = []; results.hidden = true; results.replaceChildren(); clearHighlight(); input.blur(); if (panel) panel.hidden = true; };
+    const open = () => { if (panel) panel.hidden = false; input.focus(); input.select(); };
+
+    const render = () => {
+      const q = input.value.trim().toLowerCase();
+      if (!q) { matches = []; results.hidden = true; results.replaceChildren(); clearHighlight(); return; }
+      matches = State.nodes.filter((node) => textOf(node).includes(q)).slice(0, 12);
+      results.replaceChildren();
+      if (!matches.length) {
+        const li = document.createElement("li"); li.className = "node-search-empty"; li.textContent = "没有匹配的节点";
+        results.append(li);
+      } else {
+        matches.forEach((node) => {
+          const li = document.createElement("li"); li.className = "node-search-item"; li.tabIndex = -1;
+          const role = document.createElement("span"); role.className = "node-search-role"; role.textContent = node.role === "user" ? "你" : "Treening";
+          const text = document.createElement("span"); text.className = "node-search-text"; text.textContent = compactText(node.content || node.metadata?.summary || "", 44);
+          li.append(role, text);
+          li.addEventListener("pointerdown", (event) => { event.preventDefault(); jump(node.id); });
+          results.append(li);
+        });
+      }
+      results.hidden = false;
+      applyHighlight();
+    };
+    const jump = (nodeId) => { close(); setCurrentNode(nodeId, { center: true }); };
+
+    input.addEventListener("input", render);
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); close(); }
+      else if (event.key === "Enter") { event.preventDefault(); if (matches.length) jump(matches[0].id); }
+      else if (event.key === "ArrowDown") { event.preventDefault(); results.querySelector(".node-search-item")?.focus(); }
+    });
+    input.addEventListener("focus", () => { if (input.value.trim()) render(); });
+    window.addEventListener("keydown", (event) => {
+      if ((event.ctrlKey || event.metaKey) && !event.shiftKey && !event.altKey) {
+        const key = event.key.toLowerCase();
+        if (key === "f" || key === "k") { event.preventDefault(); open(); }
+      }
+    });
+    document.addEventListener("pointerdown", (event) => { if (!event.target.closest(".node-search")) close(); });
   }
 
   function setupResponsivePanels() {
@@ -2835,6 +2916,19 @@
     chooseInteractionType("question"); await loadSessionHistory();
   }
 
+  function downloadNameFrom(response) {
+    // 从 Content-Disposition 取文件名：优先 RFC 5987 的 filename*（可带中文），
+    // 否则退回到 filename，再退回到 "export"。
+    const disposition = response.headers.get("Content-Disposition") || "";
+    const star = disposition.match(/filename\*=UTF-8''([^;]+)/i);
+    if (star) {
+      try { return decodeURIComponent(star[1]); } catch (_) { /* 回退到 filename */ }
+    }
+    const plain = disposition.match(/filename="?([^";]+)"?/i);
+    if (plain) return plain[1].trim();
+    return "export";
+  }
+
   async function exportSession() {
     if (!State.sessionId || !State.nodes.length) { appendError("当前主题还没有可以导出的节点。"); return; }
     const scope = DOM.exportScope.value;
@@ -2850,7 +2944,9 @@
       }
       const blob = await response.blob();
       const url = URL.createObjectURL(blob);
-      const link = document.createElement("a"); link.href = url; link.download = "";
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = downloadNameFrom(response);
       document.body.append(link); link.click(); link.remove(); URL.revokeObjectURL(url);
     } catch (error) {
       appendError(error.message || "导出失败，请稍后重试。");

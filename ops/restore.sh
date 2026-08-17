@@ -10,7 +10,7 @@
 set -euo pipefail
 
 REPO_DIR=/root/treening-backup-repo
-DATA_DIR=/home/admin/textree-server/docker-data/textree
+DATA_DIR=/home/admin/treening-server/docker-data/treening
 DB_PATH=$DATA_DIR/tree.db
 SSH_KEY=/root/.ssh/treening_backup_ed25519
 GIT_SSH="ssh -i $SSH_KEY -o StrictHostKeyChecking=accept-new"
@@ -44,22 +44,22 @@ fi
 
 # 3) 真实恢复
 echo "→ 停止容器"
-docker stop textree
+docker stop treening
 echo "→ 备份当前生产库（防止误恢复）"
 cp "$DB_PATH" "$WORK/tree.db.before-restore.$(date +%Y%m%d-%H%M%S)"
 echo "→ 还原备份"
 cp "$WORK/tree.db" "$DB_PATH"
 echo "→ 启动容器"
-docker start textree
+docker start treening
 
 # 4) 健康检查（最长 90s）
 ok=0
 for _ in $(seq 1 30); do
     sleep 3
-    if docker inspect -f '{{if eq .State.Health.Status "healthy"}}H{{else}}B{{end}}' textree 2>/dev/null | grep -q H; then ok=1; break; fi
+    if docker inspect -f '{{if eq .State.Health.Status "healthy"}}H{{else}}B{{end}}' treening 2>/dev/null | grep -q H; then ok=1; break; fi
 done
 if [ "$ok" != "1" ]; then
-    echo "✗ 恢复后容器未转健康！检查日志：docker logs textree" >&2
+    echo "✗ 恢复后容器未转健康！检查日志：docker logs treening" >&2
     echo "  当前生产库已备份在：$WORK/tree.db.before-restore.*（可用 restore.sh 手动还原）" >&2
     exit 1
 fi
