@@ -34,6 +34,7 @@
     branch_gap: $("#layout-branch-gap"),
     node_width: $("#layout-node-width"),
     node_height: $("#layout-node-height"),
+    orientation: $("#layout-orientation"),
   };
   const layoutPrefsError = $("#layout-prefs-error");
   const layoutPrefsSaveBtn = $("#setup-layout-prefs-save");
@@ -96,6 +97,8 @@
           const el = layoutPrefsInputs[key];
           if (el && typeof d.layout_prefs[key] === "number") el.value = d.layout_prefs[key];
         }
+        const orientationEl = layoutPrefsInputs.orientation;
+        if (orientationEl && typeof d.layout_prefs.orientation === "string") orientationEl.value = d.layout_prefs.orientation;
       }
       // 绑定邮箱回填 + 邮件服务状态提示
       const emailInput = $("#setup-email");
@@ -351,6 +354,7 @@
         const el = layoutPrefsInputs[key];
         const value = el ? el.value.trim() : "";
         if (value === "") continue;
+        if (key === "orientation") { layout_prefs[key] = value; continue; }
         const num = Number(value);
         if (!Number.isFinite(num)) { layoutPrefsError.textContent = "线长与卡片尺寸需为有效数字"; return; }
         layout_prefs[key] = num;
@@ -370,6 +374,8 @@
           const el = layoutPrefsInputs[key];
           if (el && typeof d.layout_prefs[key] === "number") el.value = d.layout_prefs[key];
         }
+        const orientationEl = layoutPrefsInputs.orientation;
+        if (orientationEl && typeof d.layout_prefs.orientation === "string") orientationEl.value = d.layout_prefs.orientation;
         layoutPrefsError.textContent = d.layout_reset
           ? `✓ 布局已保存，全部节点已按新规则重排（${d.layout_reset_nodes} 个旧位置已重置）`
           : "✓ 布局已保存（值未变化，未重置节点位置）";

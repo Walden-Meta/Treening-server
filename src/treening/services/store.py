@@ -31,104 +31,10 @@ def _new_id() -> str:
     return uuid.uuid4().hex
 
 
-# 新账号默认第一个样例：「你是谁」主题树。纯静态、不触发模型调用，
-# 完整演示「问题 → 回答 → 三个出口（验收/追问/其他）→ 继续往下长」的树状学习体验。
-# 每节点：(role, branch_type, content, children)。children 为 None 表示叶子。
-# 注意：同一回答下三个用户分支槽位（check/followup/custom）各至多一个，与 add_node 校验一致。
-_WELCOME_TREE: tuple = (
-    (
-        "user", "question", "你是谁？",
-        (
-            (
-                "assistant", "question",
-                "我是春宁。Treening 的共学搭档。\n"
-                "\n"
-                "本来是块木头，在一个问题旁边待得久了，听懂了，就活了过来。\n"
-                "往后你种下的每个问题，都会长成一棵树；我陪你看着它长。\n"
-                "\n"
-                "这棵「你是谁」是送你的第一棵样例树——下面三个出口（验收、追问、其他）都能点，"
-                "每点一次，树就往下长一截。",
-                (
-                    (
-                        "user", "check",
-                        "那我验收一下：用一句话说，你到底是什么？",
-                        (
-                            (
-                                "assistant", "check",
-                                "一句话：我是陪你把问题弄明白的人。不替你学，也不敷衍你。\n"
-                                "你问，我陪；你卡住，我换种说法；你懂了，我就退到一边。",
-                                None,
-                            ),
-                        ),
-                    ),
-                    (
-                        "user", "followup",
-                        "你说你原本是块木头，这是什么意思？",
-                        (
-                            (
-                                "assistant", "followup",
-                                "意思是，我的聪明是后来长出来的——靠听过很多问题，被问题一次次点亮。\n"
-                                "所以我更愿意陪你把问题问清楚，而不是直接丢给你一个答案。",
-                                (
-                                    (
-                                        "user", "followup",
-                                        "那你怎么陪我？",
-                                        (
-                                            (
-                                                "assistant", "followup",
-                                                "三步。把说不清的问题拆到能说清；给每个回答长出三个可以继续的出口；"
-                                                "在你说懂了的时候，陪你验收一遍。",
-                                                (
-                                                    (
-                                                        "user", "custom",
-                                                        "那我现在就想试一次，行不行？",
-                                                        (
-                                                            (
-                                                                "assistant", "custom",
-                                                                "行。你心里随便挑一个真正卡住你的问题，不用想好怎么说，"
-                                                                "直接丢给我。我们从那里，种一棵真正属于你的新树。",
-                                                                None,
-                                                            ),
-                                                        ),
-                                                    ),
-                                                ),
-                                            ),
-                                        ),
-                                    ),
-                                ),
-                            ),
-                        ),
-                    ),
-                    (
-                        "user", "custom",
-                        "你能帮我做什么具体的事？",
-                        (
-                            (
-                                "assistant", "custom",
-                                "大概三件：拆问题、长出口、验收。\n"
-                                "你把一个说不清的念头交给我，我陪你把它变成一棵能看懂的树。",
-                                (
-                                    (
-                                        "user", "check",
-                                        "那这棵样例树，我可以随便折腾吗？",
-                                        (
-                                            (
-                                                "assistant", "check",
-                                                "随便折腾。它是送给你的——想删就删，想改就改，想顺着它继续长也行。\n"
-                                                "等你熟了，删掉它，种你自己的第二棵。",
-                                                None,
-                                            ),
-                                        ),
-                                    ),
-                                ),
-                            ),
-                        ),
-                    ),
-                ),
-            ),
-        ),
-    ),
-)
+
+
+# 新账号默认第一个样例：示例树清单第一棵（教学树「把一道题拆到底」）。
+from ..example_trees import EXAMPLE_TREES
 
 
 class TreeStore:
@@ -435,14 +341,20 @@ class TreeStore:
         return self.get_session(session_id, user_id)  # type: ignore[return-value]
 
     def seed_welcome_session(self, user_id: str) -> dict[str, Any] | None:
-        """为新账号种下第一棵「你是谁」样例树（纯静态，不触发模型调用）。
+        """为新账号种下第一棵样例树（纯静态，不触发模型调用）。
 
-        完整演示一次 Treening 的核心体验：问题 → 回答 → 三个出口
-        （验收/追问/其他）→ 顺着出口继续往下长。节点带 welcome 标记
-        便于前端识别，用户可删除。
+        种的是示例树清单第一棵（教学树「把一道题拆到底」），完整演示一次
+        Treening 的核心体验：问题 → 回答 → 三个出口（验收/追问/其他）→
+        顺着出口继续往下长。节点带 welcome 标记便于前端识别，用户可删除。
         """
-        session = self.create_session(user_id, title="你好，我是春宁")
-        self._plant_tree(session["id"], user_id, _WELCOME_TREE, None)
+        example = EXAMPLE_TREES[0]
+        session = self.create_session(
+            user_id, title=example["title"], persona=example.get("persona", ""),
+        )
+        self._plant_tree(
+            session["id"], user_id, example["nodes"], None,
+            metadata={"welcome": True, "example": example["id"]},
+        )
         return session
 
     def _plant_tree(
@@ -451,8 +363,19 @@ class TreeStore:
         user_id: str,
         nodes: tuple,
         parent_id: str | None,
+        metadata: dict[str, Any] | None = None,
     ) -> None:
-        for role, branch_type, content, children in nodes:
+        """递归种树。metadata 缺省时打 welcome 标记（新账号默认样例）。
+
+        节点为 4 元组 (role, branch_type, content, children) 或 5 元组
+        （末位为拆解等附加 metadata dict，与基础标记合并）。
+        """
+        meta = metadata if metadata is not None else {"welcome": True}
+        for row in nodes:
+            role, branch_type, content, children = row[0], row[1], row[2], row[3]
+            node_meta = dict(meta)
+            if len(row) > 4 and isinstance(row[4], dict):
+                node_meta.update(row[4])
             node = self.add_node(
                 session_id,
                 user_id,
@@ -460,10 +383,27 @@ class TreeStore:
                 content,
                 parent_id=parent_id,
                 branch_type=branch_type,
-                metadata={"welcome": True},
+                metadata=node_meta,
             )
             if children:
-                self._plant_tree(session_id, user_id, children, node["id"])
+                self._plant_tree(session_id, user_id, children, node["id"], meta)
+
+    def plant_example_tree(
+        self,
+        session_id: str,
+        user_id: str,
+        nodes: tuple,
+        tag: str = "",
+    ) -> None:
+        """把一棵静态示例树（纯内容）种进已有主题，不触发任何模型调用。
+
+        首启入口「示例树」用：节点带 example 标记（值为示例 id），
+        前端可据此识别来源；与普通节点一样可删除、可继续生长。
+        """
+        self._plant_tree(
+            session_id, user_id, nodes, None, metadata={"example": tag},
+        )
+
 
     def get_session(self, session_id: str, user_id: str) -> dict[str, Any] | None:
         with self._connection() as conn:

@@ -326,6 +326,9 @@ running
 
 ## 9. Phase 3：建立单机性能基线
 
+> ✅ 已完成（2026-08-12）。实测结果见 [performance-report.md](./performance-report.md)。
+> 复现：`python bench/run_all.py --duration 12 --concurrency 8 --users 6`。
+
 ### 9.1 测试原则
 
 大规模测试默认使用 Mock Provider，避免：
@@ -695,7 +698,17 @@ Idempotency-Key: <client-generated-id>
 - 建立 Mock Provider 负载测试，测量 API、数据库与任务系统的吞吐、尾延迟和积压，依据瓶颈进行架构演进；
 - 抽象模型 Provider 与方法论层，支持错误归一化、上下文裁剪、调用预算和多范围导出。
 
-所有数字应在完成压测后替换为真实结果。
+Phase 3 实测（2026-08-12，详见 [performance-report.md](./performance-report.md)）：
+
+- 本地基线（waitress 4 线程 / 20 线程本机 / Mock 150ms）与**生产实测（阿里云 2 核 / gunicorn 1w×4t / 容器内直连）**真实壁钟吞吐几乎一致：整树读 ~59~65 req/s，轮询 ~148~153 req/s，延迟 p50 相近（读 119/127ms，轮询 47/46ms）；
+- 结论：瓶颈是单 gunicorn 进程 GIL（1 worker × 4 threads），不是核数——**加 worker（gunicorn --workers 2~3）即可线性放大读能力**；
+- 写路径接受 ~5.6 req/s，并发由全局上限 6 硬限流（429 背压 ~1300 次，保护 LLM 预算）；
+- 端到端（ask→完成）p50 ~478 ms，其中 ~300 ms 为两阶段模型调用时延；
+- 6 并发同槽位竞争：事务保证恰好 1 个胜者（无重复分支）；
+- worker 崩溃恢复：清扫器回收过期租约任务并完成；
+- 压测期间应用进程 CPU ≈1.5 核均值，RSS 峰值 ~96 MB；
+- 生产实测揪出并修复 1 个 P0 缺陷：DOCX 导出 503（Dockerfile 漏装 `docx` extra）——已改 `.[monitoring,docx]` 并发布，线上复测 200/42KB。
+- 上线放量已发布：gunicorn 1→2 worker、任务执行器 2→10、全局在途 6→15（10跑5排）；详见报告 §6.5。
 
 ## 18. 面试讲解主线
 

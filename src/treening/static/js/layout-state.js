@@ -123,5 +123,55 @@
     };
   }
 
-  return { createHorizontalGeometry, resolveOverlaps };
+  function createVerticalGeometry(children, heightOf, options = {}) {
+    // createHorizontalGeometry 的镜像：用「高度」度量子树，供横向河流布局使用。
+    // 每次调用 measure(qId) 返回该问答对子树的 { height, rootOffset, childInset }，
+    // rootOffset 是「分支子树堆叠带」中心相对子树顶部的高度偏移。
+    const siblingGap = Number.isFinite(options.siblingGap) ? options.siblingGap : 68;
+    const memo = new Map();
+
+    function measure(id, trail = new Set()) {
+      if (memo.has(id)) return memo.get(id);
+      const ownHeight = Math.max(1, Number(heightOf(id)) || 180);
+      if (trail.has(id)) {
+        if (typeof options.onCycle === "function") options.onCycle(id);
+        return { height: ownHeight, rootOffset: ownHeight / 2, childInset: 0 };
+      }
+
+      const branchChildren = children.get(id) || [];
+      if (!branchChildren.length) {
+        const leaf = { height: ownHeight, rootOffset: ownHeight / 2, childInset: 0 };
+        memo.set(id, leaf);
+        return leaf;
+      }
+
+      const nextTrail = new Set([...trail, id]);
+      const childGeometry = branchChildren.map((child) => measure(child.id, nextTrail));
+      const childSpan = childGeometry.reduce((sum, item) => sum + item.height, 0)
+        + siblingGap * Math.max(0, childGeometry.length - 1);
+      const childRoots = [];
+      let cursor = 0;
+      for (const item of childGeometry) {
+        childRoots.push(cursor + item.rootOffset);
+        cursor += item.height + siblingGap;
+      }
+
+      // 与横向版同规则：单分支跟随该分支；三分支跟随中间；其他取首尾中点。
+      let rootOffset = childRoots.length === 1
+        ? childRoots[0]
+        : childRoots.length === 3
+          ? childRoots[1]
+          : (childRoots[0] + childRoots[childRoots.length - 1]) / 2;
+      const childInset = Math.max(0, ownHeight / 2 - rootOffset);
+      rootOffset += childInset;
+      const height = Math.max(childSpan + childInset, rootOffset + ownHeight / 2);
+      const result = { height, rootOffset, childInset };
+      memo.set(id, result);
+      return result;
+    }
+
+    return { measure };
+  }
+
+  return { createHorizontalGeometry, createVerticalGeometry, resolveOverlaps };
 });

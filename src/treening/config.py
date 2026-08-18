@@ -37,11 +37,13 @@ _settings = _load_settings()
 #   branch_gap  不同问答之间衔接的线长（回答→分支问题）
 #   node_width  卡片默认宽（问答对共享宽度）
 #   node_height 卡片默认高（问答对按各自高度排布，缩放保持比例）
-LAYOUT_PREFS_DEFAULTS: dict[str, float] = {
+#   orientation 生长方向：vertical（自上而下）/ horizontal（横向河流式，问答对保持纵向、分支向右）
+LAYOUT_PREFS_DEFAULTS: dict[str, object] = {
     "qa_gap": 24,
     "branch_gap": 82,
     "node_width": 300,
     "node_height": 180,
+    "orientation": "vertical",
 }
 LAYOUT_PREFS_RANGES: dict[str, tuple[float, float]] = {
     "qa_gap": (16, 200),
@@ -49,17 +51,22 @@ LAYOUT_PREFS_RANGES: dict[str, tuple[float, float]] = {
     "node_width": (220, 640),   # 同前端 NODE_MIN/MAX_WIDTH
     "node_height": (90, 4800),  # 同前端 NODE_MIN/MAX_HEIGHT
 }
+LAYOUT_ORIENTATIONS: tuple[str, ...] = ("vertical", "horizontal")
 
 
-def layout_prefs_for(user_cfg: dict) -> dict[str, float]:
+def layout_prefs_for(user_cfg: dict) -> dict[str, object]:
     """返回生效的布局偏好：用户覆盖（数值夹取到合法范围）+ 默认兜底。
 
     配置页保存的覆盖值写入 user_configs.layout_prefs；
     前端展示与学习空间读取统一走这里，保证缺键/越界时回退安全值。
+    orientation 是非数值的字符串键，单独校验（只认 vertical / horizontal）。
     """
-    merged = dict(LAYOUT_PREFS_DEFAULTS)
+    merged: dict[str, object] = dict(LAYOUT_PREFS_DEFAULTS)
     stored = user_cfg.get("layout_prefs") or {}
     if isinstance(stored, dict):
+        orientation = stored.get("orientation")
+        if orientation in LAYOUT_ORIENTATIONS:
+            merged["orientation"] = orientation
         for key, (low, high) in LAYOUT_PREFS_RANGES.items():
             try:
                 value = float(stored.get(key))

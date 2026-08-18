@@ -507,6 +507,11 @@ _CANVAS_COLORS = {
     "custom": "2",
 }
 
+# 横向 canvas 的间距：深度层之间的 x 间距、同层兄弟之间的 y 间距。
+# 语义与纵向的 _CANVAS_H_GAP / _CANVAS_V_GAP 正好互换（横向时 x 是「层」、y 是「分支展开」）。
+_CANVAS_H_LAYER_GAP = 160
+_CANVAS_V_SIBLING_GAP = 120
+
 
 def _canvas_layout(
     root_ids: list[str],
@@ -555,6 +560,53 @@ def _canvas_layout(
     return positions
 
 
+def _canvas_layout_horizontal(
+    root_ids: list[str],
+    child_answers_of: dict[str, list[str]],
+) -> dict[str, tuple[float, float]]:
+    """横向河流式布局：x 随深度递增（层），兄弟子树按叶子槽位纵向堆叠（y）。
+
+    与 _canvas_layout 互为镜像：横向屏幕下回答卡沿 x 向右生长，
+    同一深度的兄弟在 y 方向错开，观感与学习空间的横向模式一致。
+    """
+    positions: dict[str, tuple[float, float]] = {}
+    depth: dict[str, int] = {}
+
+    def set_depth(aid: str, d: int) -> None:
+        depth[aid] = d
+        for kid in child_answers_of.get(aid, []):
+            set_depth(kid, d + 1)
+
+    for rid in root_ids:
+        set_depth(rid, 0)
+
+    leaf_index: dict[str, int] = {}
+
+    def collect_leaves(aid: str) -> None:
+        kids = child_answers_of.get(aid, [])
+        if not kids:
+            leaf_index[aid] = len(leaf_index)
+        else:
+            for kid in kids:
+                collect_leaves(kid)
+
+    for rid in root_ids:
+        collect_leaves(rid)
+
+    def assign_y(aid: str) -> float:
+        kids = child_answers_of.get(aid, [])
+        if not kids:
+            y = leaf_index[aid] * (_CANVAS_NODE_HEIGHT + _CANVAS_V_SIBLING_GAP)
+        else:
+            y = sum(assign_y(kid) for kid in kids) / len(kids)
+        positions[aid] = (depth[aid] * (_CANVAS_NODE_WIDTH + _CANVAS_H_LAYER_GAP), y)
+        return y
+
+    for rid in root_ids:
+        assign_y(rid)
+    return positions
+
+
 def _render_canvas(
     session: dict[str, Any],
     root_ids: list[str],
@@ -562,57 +614,90 @@ def _render_canvas(
     slugs: dict[str, str],
     branch_types: dict[str, str],
     folder: str,
+    layout: str = "vertical",
 ) -> str:
     """把回答树渲染成 Obsidian Canvas（.canvas JSON）。
 
     每个回答一张 ``file`` 节点（指向 vault 里的 md），父子用带箭头的边连接；
-    用会话标题作为一张 ``text`` 根节点锚定整张画布。默认配置：
-    - 卡片按分支类型着色（起点=紫 / 验收=绿 / 追问=蓝 / 其他=橙）
-    - 边带分支类型标签（验收/追问/其他）与箭头（方向 = 树的生长方向）
+    用会话标题作为一张 ``text`` 根节点锚定整张画布。
+    layout 决定画布方向：
+    - vertical   自上而下（默认）：标题在根上方，边 bottom→top
+    - horizontal 横向河流：x 随深度递增、兄弟纵向堆叠，标题在根左侧，边 right→left
     """
     import json as _json
 
-    positions = _canvas_layout(root_ids, child_answers_of)
+    horizontal = layout == "horizontal"
+    positions = (
+        _canvas_layout_horizontal(root_ids, child_answers_of)
+        if horizontal
+        else _canvas_layout(root_ids, child_answers_of)
+    )
     nodes: list[dict[str, Any]] = []
     edges: list[dict[str, Any]] = []
 
-    # 标题卡片：居中锚定在根节点正上方，底部引一条竖线连到根（比斜线更规整）。
     _TITLE_WIDTH = 480
     _TITLE_HEIGHT = 80
-    _TOP_OFFSET = _TITLE_HEIGHT + _CANVAS_V_GAP
 
-    anchor_x = positions[root_ids[0]][0] if root_ids else 0.0
-    nodes.append({
-        "id": "canvas-title",
-        "type": "text",
-        "text": _title(session),
-        "x": round(anchor_x + (_CANVAS_NODE_WIDTH - _TITLE_WIDTH) / 2, 1),
-        "y": 0.0,
-        "width": _TITLE_WIDTH,
-        "height": _TITLE_HEIGHT,
-        "color": "1",
-    })
-
-    for aid, (x, y) in positions.items():
+    if horizontal:
+        # 标题卡居左、垂直居中对齐根回答；节点层从标题右侧开始，x = 标题宽 + 层间距
+        _LEFT_OFFSET = _TITLE_WIDTH + _CANVAS_H_LAYER_GAP
+        anchor_y = positions[root_ids[0]][1] if root_ids else 0.0
         nodes.append({
-            "id": aid,
-            "type": "file",
-            "file": f"{folder}/{slugs[aid]}.md",
-            "x": round(x, 1),
-            "y": round(_TOP_OFFSET + y, 1),
-            "width": _CANVAS_NODE_WIDTH,
-            "height": _CANVAS_NODE_HEIGHT,
-            "color": _CANVAS_COLORS.get(branch_types.get(aid, "custom"), "2"),
+            "id": "canvas-title",
+            "type": "text",
+            "text": _title(session),
+            "x": 0.0,
+            "y": round(anchor_y + (_CANVAS_NODE_HEIGHT - _TITLE_HEIGHT) / 2, 1),
+            "width": _TITLE_WIDTH,
+            "height": _TITLE_HEIGHT,
+            "color": "1",
         })
+        for aid, (x, y) in positions.items():
+            nodes.append({
+                "id": aid,
+                "type": "file",
+                "file": f"{folder}/{slugs[aid]}.md",
+                "x": round(_LEFT_OFFSET + x, 1),
+                "y": round(y, 1),
+                "width": _CANVAS_NODE_WIDTH,
+                "height": _CANVAS_NODE_HEIGHT,
+                "color": _CANVAS_COLORS.get(branch_types.get(aid, "custom"), "2"),
+            })
+    else:
+        # 标题卡片：居中锚定在根节点正上方，底部引一条竖线连到根（比斜线更规整）。
+        _TOP_OFFSET = _TITLE_HEIGHT + _CANVAS_V_GAP
+        anchor_x = positions[root_ids[0]][0] if root_ids else 0.0
+        nodes.append({
+            "id": "canvas-title",
+            "type": "text",
+            "text": _title(session),
+            "x": round(anchor_x + (_CANVAS_NODE_WIDTH - _TITLE_WIDTH) / 2, 1),
+            "y": 0.0,
+            "width": _TITLE_WIDTH,
+            "height": _TITLE_HEIGHT,
+            "color": "1",
+        })
+        for aid, (x, y) in positions.items():
+            nodes.append({
+                "id": aid,
+                "type": "file",
+                "file": f"{folder}/{slugs[aid]}.md",
+                "x": round(x, 1),
+                "y": round(_TOP_OFFSET + y, 1),
+                "width": _CANVAS_NODE_WIDTH,
+                "height": _CANVAS_NODE_HEIGHT,
+                "color": _CANVAS_COLORS.get(branch_types.get(aid, "custom"), "2"),
+            })
 
+    title_side = ("right", "left") if horizontal else ("bottom", "top")
     for rid in root_ids:
         edges.append({
             "id": f"title-{rid}",
             "fromNode": "canvas-title",
-            "fromSide": "bottom",
+            "fromSide": title_side[0],
             "fromEnd": "none",
             "toNode": rid,
-            "toSide": "top",
+            "toSide": title_side[1],
             "toEnd": "arrow",
         })
 
@@ -621,10 +706,10 @@ def _render_canvas(
             edges.append({
                 "id": f"{aid}-{kid}",
                 "fromNode": aid,
-                "fromSide": "bottom",
+                "fromSide": title_side[0],
                 "fromEnd": "none",
                 "toNode": kid,
-                "toSide": "top",
+                "toSide": title_side[1],
                 "toEnd": "arrow",
                 "label": BRANCH_LABELS.get(branch_types.get(kid, "custom"), "其他"),
             })
@@ -636,11 +721,13 @@ def render_vault(
     session: dict[str, Any],
     nodes: list[dict[str, Any]],
     scope: str = "tree",
+    layout: str = "vertical",
 ) -> bytes:
     """整棵树导出为 Obsidian vault 的 zip：多 md + frontmatter + wikilink + MOC。
 
     ``nodes`` 应已是按 scope/node_id 过滤后的节点列表（由 render_export 负责过滤）；
     ``scope`` 只用于确定 zip 内的文件夹名（与下载名共用 export_basename）。
+    ``layout`` 控制 .canvas 画布方向（vertical / horizontal）。
     """
     import zipfile
 
@@ -681,7 +768,7 @@ def render_vault(
     branch_types = {aid: _branch(node_map[aid]) for aid in answer_ids}
     files["MOC.md"] = _render_moc(session, root_ids, child_answers_of, titles)
     files[f"{session_slug}.canvas"] = _render_canvas(
-        session, root_ids, child_answers_of, slugs, branch_types, session_slug
+        session, root_ids, child_answers_of, slugs, branch_types, session_slug, layout
     )
 
     buffer = BytesIO()
@@ -697,6 +784,7 @@ def render_export(
     fmt: str,
     scope: str,
     node_id: str | None = None,
+    layout: str = "vertical",
 ) -> tuple[bytes, str, str]:
     selected = _selected_nodes(nodes, scope, node_id)
     if fmt == "md":
@@ -706,5 +794,5 @@ def render_export(
     if fmt == "docx":
         return render_docx(session, selected, scope), "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "docx"
     if fmt in ("vault", "obsidian"):
-        return render_vault(session, selected, scope), "application/zip", "zip"
+        return render_vault(session, selected, scope, layout), "application/zip", "zip"
     raise ValueError("unsupported export format")

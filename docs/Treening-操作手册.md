@@ -344,6 +344,9 @@ Treening 的核心理念是：**学习不是一条线，而是一棵树；树的
 | TREENING_PERSONA | 空 | 全局默认人设；兜底链：用户配置 → data/persona.md → 本变量 → 内置春宁（每位用户可在配置页单独覆盖/重置） |
 | TREENING_QUOTA_ENABLED | true | 配额开关（默认开） |
 | TREENING_MAX_QUESTIONS | 10 | 普通用户每日默认次数 |
+| TREENING_JOB_EXECUTOR_WORKERS | 10 | 同时并行调模型的任务数（"跑"） |
+| TREENING_MAX_GLOBAL_INFLIGHT | 15 | 全局在途任务上限 = 跑 + 排队（10跑5排） |
+| TREENING_MAX_INFLIGHT | 2 | 单用户同时在途任务数上限 |
 | TREENING_BRANCH_LABEL_MAX_CHARS | 6 | 分支命名单字上限 |
 
 ## 数据文件（data/ 目录）

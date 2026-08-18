@@ -168,7 +168,21 @@ html[data-theme="dark"] .theme-toggle-switch .theme-toggle-thumb .theme-toggle-m
 .persona-tag:hover { border-color: var(--quiz-accent); color: var(--quiz-text); }
 .persona-tag[hidden] { display: none; }
 .persona-tag-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--quiz-accent); flex: none; }
-.persona-tag-caret { font-size: 12px; opacity: .7; }
+.persona-tag-caret {
+  flex: 0 0 auto;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 10px; height: 10px;
+  opacity: .8;
+}
+.persona-tag-caret::before {
+  content: "";
+  flex: 0 0 auto;
+  width: 6px; height: 6px;
+  margin-top: -1px;  /* 光学居中：V 形视觉重心偏下，略上移 */
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(45deg);  /* 向下 */
+}
 .study-app.has-tree .study-header { min-height: 72px; align-items: center; padding-bottom: 16px; }
 .study-app.has-tree .header-intro { display: none; }
 .study-app.has-tree .workspace-heading { display: block; }
@@ -278,10 +292,49 @@ html[data-theme="dark"] .theme-toggle-switch .theme-toggle-thumb .theme-toggle-m
 .graph-edge.followup { stroke: var(--quiz-followup); }
 .graph-edge.check { stroke: var(--quiz-check); }
 .graph-edge.custom { stroke: var(--quiz-custom); }
-/* 问答对间距中心的横细线：低调灰 + 弱光，不抢视线；可见线与透明宽命中区叠加，可上下拖拽分配问答高度 */
-.qa-divider-hit { stroke: transparent; stroke-width: 26; pointer-events: auto; cursor: ns-resize; touch-action: none; vector-effect: non-scaling-stroke; }
-html[data-theme="dark"] .qa-divider-hit { stroke: transparent; }
-.graph-edge.qa-divider-line { pointer-events: none; stroke: #9ca3af; stroke-width: 2; opacity: .62; filter: url(#edge-glow-soft); }
+/* 问答对单元（方案2）：回答卡 DOM 嵌套进发问卡 article（同一棵 DOM 树），
+   整对作为单元移动，物理上不可能漂移。.qa-divider = 单元内间距中心的可见
+   小横条（高度分配把手），绝对定位随发问卡一起走；拖拽分配问答高度也用它，
+   SVG 层不再画问答对内连线。 */
+.graph-node.user > .graph-node.assistant {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 3;
+}
+.graph-node.user.is-folded > .graph-node.assistant { display: none; }
+.qa-divider {
+  display: none;
+  position: absolute;
+  left: 50%;
+  width: 75%;
+  height: 10px;
+  transform: translate(-50%, -50%);
+  cursor: ns-resize;
+  touch-action: none;
+  z-index: 4;
+}
+.graph-node.user.has-answer > .qa-divider { display: block; }
+/* 折叠/隐藏优先：牌堆里的发问卡不露分隔线与回答卡（顺序在 has-answer 之后才能赢） */
+.graph-node.user.is-folded > .qa-divider { display: none; }
+.qa-divider::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 2px;
+  border-radius: 999px;
+  background: #9ca3af;
+  opacity: .62;
+  box-shadow: 0 0 5px rgba(17, 24, 39, .18);
+  transform: translateY(-50%);
+}
+html[data-theme="dark"] .qa-divider::before { background: #8b949e; opacity: .55; }
+/* 隐藏发问卡时，其嵌套回答卡随之一同消失；但回答卡自身也被隐藏（如「全部隐藏」）时，
+   回答卡保留并展示它自己的「已隐藏」摘要芯片，而不是一并消失。 */
+.graph-node.is-concealed > .qa-divider { display: none; }
+.graph-node.is-concealed > .graph-node.assistant:not(.is-concealed) { display: none; }
 .graph-nodes { position: absolute; left: 0; top: 0; z-index: 2; }
 .graph-node { position: absolute; width: 300px; transform: translate(-50%, -50%); transition: left var(--motion-standard) var(--ease-standard), top var(--motion-standard) var(--ease-standard), width var(--motion-standard) var(--ease-standard), opacity var(--motion-standard) ease, filter var(--motion-standard) ease, transform var(--motion-standard) var(--ease-standard); animation: node-arrive var(--motion-standard) var(--ease-standard) both; z-index: 2; }
 .graph-node.is-view-hidden { opacity: 0; filter: blur(2px); transform: translate(-50%, -50%) scale(.965); pointer-events: none; }
@@ -307,6 +360,9 @@ html[data-theme="dark"] .marquee-select { border-color: rgba(255,255,255,.9); ba
 /* 分界线拖拽 / 问答对整体缩放期间：高度瞬变而位置带 transition 会导致两卡滞后、
    可见间距来回伸缩，必须与整组拖动一致关闭位移动画 */
 .study-app.is-divider-dragging .graph-node { transition-duration: .01ms; animation-duration: .01ms; }
+/* 完整重排期间卡片瞬移到目标坐标（与同帧画出的连线严格一致），
+   消除"卡片滑行、连线瞬跳"的脱节感；仅关 transition，保留进场动画 */
+.study-app.is-relayouting .graph-node { transition-duration: .01ms; }
 .graph-node.is-path { opacity: 1; }
 .graph-node.is-nearby { opacity: .74; }
 .graph-node.is-nearby .node-card { border-style: dashed; box-shadow: 0 12px 30px rgba(17,24,39,.10); }
@@ -353,7 +409,7 @@ html[data-theme="dark"] .graph-node.is-current:not(.is-marquee-selected):hover .
 .study-app.is-large-tree .graph-node.is-background .branch-slots { display: none; }
 .node-card { position: relative; display: flex; flex-direction: column; min-width: 220px; min-height: 90px; border: 1px solid var(--quiz-line); border-radius: var(--radius-card); background: rgba(255,255,255,.98); box-shadow: var(--shadow-card); overflow: hidden; cursor: grab; }
 .node-card.is-node-dragging, .node-card.is-node-resizing { cursor: grabbing; transition: none; }
-.graph-node.user .node-card { border-color: rgba(17,24,39,.14); background: var(--quiz-user); }
+.graph-node.user > .node-card { border-color: rgba(17,24,39,.14); background: var(--quiz-user); }
 .graph-node.is-current .node-card { border-color: rgba(37,99,235,.72); box-shadow: 0 0 0 3px rgba(37,99,235,.16), 0 26px 60px rgba(17,24,39,.24); }
 html[data-theme="dark"] .graph-node.is-current .node-card { border-color: rgba(255,255,255,.95); box-shadow: 0 0 0 4px rgba(255,255,255,.42), 0 26px 60px rgba(0,0,0,.55); }
 .graph-node.is-current:not(.is-folded) .node-card { transform: translateY(-2px); }
@@ -381,7 +437,7 @@ html[data-theme="dark"] .graph-node.is-current .node-card { border-color: rgba(2
 .node-action-delete::before, .node-action-delete::after { content: ""; position: absolute; left: 50%; top: 50%; width: 11px; height: 2px; border-radius: 999px; background: currentColor; transform: translate(-50%, -50%) rotate(45deg); }
 .node-action-delete::after { transform: translate(-50%, -50%) rotate(-45deg); }
 .node-action-delete:hover { border-color: #ff9c9c; background: #9b2b38; color: #fff; box-shadow: 0 0 20px rgba(255, 91, 105, .6); }
-.graph-node.user .node-header { padding-right: 42px; }
+.graph-node.user > .node-card .node-header { padding-right: 42px; }
 .branch-slots { position: absolute; left: 10px; right: 10px; top: calc(100% + 7px); z-index: 8; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px; padding: 7px; border: 1px solid rgba(17,24,39,.12); border-radius: 12px; background: rgba(255,255,255,.96); box-shadow: 0 22px 56px rgba(17,24,39,.26); opacity: 0; visibility: hidden; pointer-events: none; transform: translateY(-10px) scale(.975); transform-origin: 50% 0; transition: opacity var(--motion-fast) ease, transform var(--motion-standard) var(--ease-emphasis), visibility 0s linear var(--motion-fast); backdrop-filter: blur(14px); }
 .branch-slots::before { content: ""; position: absolute; left: 0; right: 0; top: -8px; height: 8px; }
 .graph-node.assistant:hover .branch-slots,
@@ -454,6 +510,11 @@ html[data-theme="dark"] .graph-node.is-current .node-card { border-color: rgba(2
 .graph-node.is-fold-root { z-index: 5; }  /* 父节点恒在牌堆之上，按钮可点 */
 .graph-node.is-fold-root .node-card { border-color: rgba(37,99,235,.58); box-shadow: 0 24px 60px rgba(17,24,39,.26); }
 .graph-node.is-fold-root:not(.is-view-hidden) .node-card { animation: deck-anchor 420ms var(--ease-emphasis); }
+
+/* ── 问答对内的回答卡随「收起」整体隐藏 ──
+   发问卡成为折叠根时（is-fold-root），其嵌套的回答卡不可留下空白卡框，应完全不可视；
+   发问卡作为其他支的折叠成员时（is-folded），同样整体隐藏（见上方 .user.is-folded 规则）。 */
+.graph-node.user.is-fold-root > .graph-node.assistant { display: none; }
 
 /* ── 2026 workspace rhythm: the canvas is the visual centre ── */
 .quiz-shell { width: min(1720px, 100%); padding: 30px 36px 38px; }
@@ -638,6 +699,348 @@ html[data-theme="dark"] .graph-node.is-current .node-card { border-color: rgba(2
   .session-rail, .reader-panel { bottom: 8px; width: calc(100vw - 16px); border-radius: 20px; }
 }
 
+/* ============================================================
+   移动端「研究工作台」统一抽屉（三态）+ 全高画布 + 手势归属
+   ≤767px：头部精简、画布占满剩余高度、抽屉托管所有非画布内容。
+   ============================================================ */
+.mobile-workspace, .mobile-canvas-controls,
+.mobile-more-button, .mobile-more-menu, .mobile-canvas-expand, .mobile-canvas-popover,
+.mobile-canvas-orient, .mobile-close-button { display: none; }
+
+@media (max-width: 767px) {
+  /* ── 手势归属：画布独占触摸，页面不缩放不滚动 ── */
+  .graph-viewport { touch-action: none; }
+  .graph-node.is-current .node-content { overflow-y: hidden; }  /* 卡片内不滚动，全文走抽屉详情 */
+
+  /* 双面板切换按钮被工作台抽屉取代；背板/左栏收起按钮不再需要 */
+  .workspace-panel-switcher { display: none !important; }
+  .panel-backdrop { display: none !important; }
+  .rail-collapse-toggle { display: none !important; }
+
+  /* ── 全高画布布局：窄头部 + 画布 flex 撑满 ── */
+  .quiz-shell { padding: 0; }
+  .study-app {
+    display: flex;
+    flex-direction: column;
+    height: 100dvh;
+    max-height: 100dvh;
+    overflow: hidden;
+  }
+  .study-header {
+    flex: 0 0 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: row;          /* 覆盖前面 767 块的 column 堆叠 */
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin: 0;
+    padding: 10px 14px !important; /* 盖过后面 .study-header{padding-left:0} */
+    border-bottom: 1px solid var(--quiz-line);
+    background: var(--quiz-surface);
+  }
+  /* 覆盖 .site-logo-link{width:72px;height:72px}：移动端 logo 高一倍到 44px，头部等比例放大 */
+  .study-header .site-logo-link { position: static; width: 44px !important; height: 44px !important; margin: 0 !important; flex: 0 0 auto; }
+  .study-header .site-logo-link .site-logo { width: 100%; height: 100%; border-radius: 10px; }
+  .header-intro { display: none !important; }
+  .workspace-heading {
+    flex: 1; min-width: 0;
+    display: flex !important;   /* 空树也显示标题，保证头部一条直线 */
+    align-items: center;
+    gap: 8px;
+    margin: 0; padding: 0;
+  }
+  .workspace-heading h2 { flex: 1; min-width: 0; max-width: none; margin: 0; font-size: 18px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .persona-tag { flex: 0 0 auto; margin: 0; padding: 4px 10px; font-size: 12px; line-height: 20px; }
+  .header-actions { flex: 0 0 auto; width: auto; display: flex; align-items: center; gap: 8px; margin: 0; padding: 0; }
+  .header-actions .quota,
+  .header-actions .export-control,
+  #replay-link, #setup-link, #admin-link, #logout-button,
+  #new-session-button { display: none !important; }  /* 新主题移进 ⋯ 菜单 */
+  /* 太阳/月亮开关压成紧凑胶囊，避免吃满头部 */
+  .theme-toggle-switch { width: 52px; height: 34px; flex: 0 0 auto; }
+  .theme-toggle-switch .theme-toggle-thumb { top: 3px; left: 3px; width: 26px; height: 26px; }
+  .theme-toggle-switch .theme-toggle-thumb svg { width: 15px; height: 15px; }
+  html[data-theme="dark"] .theme-toggle-switch .theme-toggle-thumb { transform: translateX(20px); }
+
+  .study-layout { flex: 1; min-height: 0; display: block; margin: 0; padding: 0; }
+  .conversation-area { height: 100%; min-height: 0; display: flex; flex-direction: column; }
+  /* 画布内缩成带边框圆角的面板：左右边界清晰可见 */
+  .graph-viewport {
+    flex: 1; min-height: 0; height: auto;
+    margin: 6px 10px 10px;
+    border: 1px solid var(--quiz-line-strong);
+    border-radius: 14px;
+    box-shadow: 0 2px 16px rgba(17,24,39,.05);
+  }
+  .empty-state { transform: none; }
+
+  /* ── 头部「⋯」更多菜单（导出 / 回放 / 紧凑 / 方向 / 配置 / 退出） ── */
+  .mobile-more-button {
+    flex: 0 0 auto;
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 36px; height: 36px;
+    border: 1px solid var(--quiz-line); border-radius: 10px;
+    background: transparent; color: var(--quiz-text); font-size: 18px; line-height: 1;
+  }
+  .mobile-more-menu {
+    position: fixed; top: 72px; right: 12px; z-index: 60;
+    display: flex; flex-direction: column; gap: 2px;
+    min-width: 204px; padding: 8px;
+    border: 1px solid var(--quiz-line); border-radius: 14px;
+    background: var(--quiz-surface);
+    box-shadow: 0 26px 70px rgba(17,24,39,.28);
+  }
+  .mobile-more-menu button {
+    border: 0; border-radius: 9px; padding: 10px 12px;
+    background: transparent; color: var(--quiz-text);
+    font-size: 13px; text-align: left;
+  }
+  .mobile-more-menu button:active { background: rgba(37,99,235,.1); }
+  .mobile-more-status { padding: 8px 12px 6px; color: var(--quiz-faint); font-size: 11px; }
+  .mobile-more-label { padding: 6px 12px 4px; color: var(--quiz-faint); font-size: 10px; letter-spacing: .12em; text-transform: uppercase; }
+  .mobile-more-group { display: grid; grid-template-columns: 1fr 1fr; gap: 2px; padding-bottom: 6px; border-bottom: 1px solid var(--quiz-line); margin-bottom: 4px; }
+  .mobile-more-group button { padding: 9px 12px; }
+
+  /* ── 工作台抽屉（三态：收起 / 半展开 / 全展开） ── */
+  .mobile-workspace {
+    display: flex;
+    position: fixed;
+    left: 10px; right: 10px; bottom: 10px;
+    z-index: 40;
+    flex-direction: column;
+    overflow: hidden;
+    border: 1px solid var(--quiz-line);
+    border-radius: 18px;
+    background: var(--quiz-surface);
+    box-shadow: 0 30px 80px rgba(17,24,39,.32);
+    transition: height var(--motion-standard) var(--ease-emphasis);
+  }
+  body.mobile-ws-collapsed .mobile-workspace { height: 58px; }
+  body.mobile-ws-half .mobile-workspace { height: min(46dvh, 460px); }
+  body.mobile-ws-full .mobile-workspace { height: calc(100dvh - 56px); }
+
+  .mobile-handle {
+    flex: 0 0 58px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 0 12px;
+    cursor: pointer;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: none;
+  }
+  .mobile-handle-title { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+  .mobile-handle-kicker { font-size: 9px; letter-spacing: .14em; text-transform: uppercase; color: var(--quiz-faint); }
+  #mobile-current-node { max-width: 40vw; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 13px; font-weight: 600; }
+  .mobile-handle-controls { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
+  .mobile-ask-button {
+    height: 30px; padding: 0 14px; border: 0; border-radius: 999px;
+    background: var(--quiz-accent); color: #fff; font-size: 12px; font-weight: 600;
+  }
+  .mobile-close-button {
+    position: relative;
+    width: 28px; height: 28px;
+    border: 1px solid var(--quiz-line); border-radius: 50%;
+    background: transparent; color: var(--quiz-faint);
+  }
+  body:not(.mobile-ws-collapsed) .mobile-close-button { display: inline-flex; align-items: center; justify-content: center; }
+  .mobile-close-button::before,
+  .mobile-close-button::after {
+    content: ""; position: absolute; left: 50%; top: 50%;
+    width: 12px; height: 2px;
+    margin: -1px 0 0 -6px;  /* 精确居中 */
+    border-radius: 1px;
+    background: currentColor;
+  }
+  .mobile-close-button::before { transform: rotate(45deg); }
+  .mobile-close-button::after { transform: rotate(-45deg); }
+  .mobile-chevron {
+    position: relative;
+    display: flex; align-items: center; justify-content: center;  /* flex 居中，旋转不再影响位置 */
+    width: 26px; height: 26px; flex: 0 0 auto;
+    border-radius: 50%;
+    background: rgba(17,24,39,.06);
+  }
+  .mobile-chevron::before {
+    content: ""; flex: 0 0 auto;
+    width: 9px; height: 9px;
+    border-right: 2px solid var(--quiz-faint); border-bottom: 2px solid var(--quiz-faint);
+    transform: rotate(225deg);  /* 收起=上箭头（拉起展开） */
+    transition: transform var(--motion-standard) var(--ease-emphasis);
+  }
+  body:not(.mobile-ws-collapsed) .mobile-chevron::before { transform: rotate(45deg); }  /* 展开=下箭头 */
+
+  .mobile-sheet { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+  .mobile-tabs { flex: 0 0 auto; display: flex; gap: 4px; padding: 6px 10px; border-bottom: 1px solid var(--quiz-line); }
+  .mobile-tab {
+    flex: 1; padding: 8px 6px; border: 0; border-radius: 9px;
+    background: transparent; color: var(--quiz-faint); font-size: 12px; font-weight: 500;
+  }
+  .mobile-tab.is-active { background: rgba(37,99,235,.1); color: var(--quiz-accent-strong); }
+  .mobile-sheet-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
+
+  /* 移入工作台的面板：清掉弹层/流内样式，改回文档流卡片 */
+  .mobile-workspace .reader-panel,
+  .mobile-workspace .session-rail {
+    position: static !important;
+    inset: auto !important;
+    left: auto !important; right: auto !important; top: auto !important; bottom: auto !important;
+    width: auto !important;
+    height: auto !important;
+    max-height: none !important;
+    min-height: 0 !important;
+    margin: 0 !important;
+    padding: 14px 16px 22px !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+    pointer-events: auto !important;
+    overflow: visible !important;
+  }
+  .mobile-workspace .reader-panel .reader-empty,
+  .mobile-workspace .reader-panel .reader-view { min-height: 0; }
+  .mobile-workspace .history-panel { min-height: 0; }
+
+  /* 提问框进工作台「提问」标签页 */
+  .mobile-workspace .composer {
+    position: static !important;
+    left: auto !important; right: auto !important; bottom: auto !important;
+    width: auto !important; height: auto !important;
+    margin: 0 !important; padding: 14px !important;
+    border: 0 !important; border-radius: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    opacity: 1 !important; transform: none !important;
+    pointer-events: auto !important;
+  }
+  .mobile-workspace .composer.is-collapsed { opacity: 1 !important; transform: none !important; pointer-events: auto !important; }
+  .mobile-workspace .composer-tools { margin-bottom: 8px; }
+  .mobile-workspace .composer textarea { min-height: 58px; max-height: 96px; }
+
+  /* 标签页互斥显示 */
+  .mobile-workspace.sheet-tab-qa .reader-panel,
+  .mobile-workspace.sheet-tab-qa .session-rail,
+  .mobile-workspace.sheet-tab-reader .composer,
+  .mobile-workspace.sheet-tab-reader .session-rail,
+  .mobile-workspace.sheet-tab-history .composer,
+  .mobile-workspace.sheet-tab-history .reader-panel { display: none !important; }
+
+  /* 展开时锁页滚动，抽屉内部滚 */
+  body:not(.mobile-ws-collapsed) { overflow: hidden; }
+
+  /* 顶部模块全部收进右上角「⌄」展开键：视图切换 / 查看·编辑 / 全部隐藏 / OVERVIEW */
+  .canvas-tl { display: none !important; }
+  .mobile-canvas-controls { display: none !important; }
+  .study-app:not(.has-tree) .mobile-canvas-expand { display: none; }  /* 空树无树可看，不显示展开键 */
+
+  .mobile-canvas-expand {
+    position: absolute; top: 10px; right: 10px; z-index: 8;
+    width: 32px; height: 32px;
+    display: inline-flex; align-items: center; justify-content: center;  /* flex 居中，不随旋转偏移 */
+    border: 1px solid var(--quiz-line); border-radius: 10px;
+    background: rgba(255,255,255,.92);
+    color: var(--quiz-faint);
+    box-shadow: 0 10px 26px rgba(17,24,39,.12);
+    backdrop-filter: blur(10px);
+  }
+  .mobile-canvas-expand::before {
+    content: ""; flex: 0 0 auto;
+    width: 9px; height: 9px;
+    border-right: 2px solid var(--quiz-faint); border-bottom: 2px solid var(--quiz-faint);
+    transform: rotate(45deg);  /* 收起=下箭头（点击展开） */
+    transition: transform var(--motion-standard) var(--ease-emphasis);
+  }
+  .mobile-canvas-expand[aria-expanded="true"]::before { transform: rotate(225deg); }  /* 展开=上箭头 */
+  .mobile-canvas-popover {
+    position: absolute; top: 50px; right: 10px; z-index: 8;
+    width: min(300px, calc(100vw - 44px));
+    max-height: calc(100dvh - 170px);
+    padding: 10px;
+    display: flex; flex-direction: column; gap: 10px;
+    overflow-y: auto;
+    border: 1px solid var(--quiz-line); border-radius: 14px;
+    background: rgba(255,255,255,.96);
+    box-shadow: 0 26px 70px rgba(17,24,39,.24);
+  }
+  .mobile-canvas-popover .popover-row-label { color: var(--quiz-faint); font-size: 10px; letter-spacing: .12em; text-transform: uppercase; margin: 0 0 4px; }
+
+  /* 移入弹层的模块：清掉原悬浮定位，改回弹层内的文档流行 */
+  .mobile-canvas-popover .minimap,
+  .mobile-canvas-popover .canvas-tl,
+  .mobile-canvas-popover .mobile-canvas-controls,
+  .mobile-canvas-popover .bulk-visibility-controls {
+    position: static !important;
+    inset: auto !important;
+    left: auto !important; right: auto !important; top: auto !important; bottom: auto !important;
+    width: auto !important; height: auto !important;
+    min-height: 0 !important;
+    margin: 0 !important; padding: 0 !important;
+    border: 0 !important; border-radius: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    display: flex !important;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    transform: none !important;
+    opacity: 1 !important;
+    pointer-events: auto !important;
+  }
+  .mobile-canvas-popover .minimap { height: 120px; flex-direction: column; align-items: stretch; }
+  .mobile-canvas-popover .minimap-title { margin: 0; }
+  .mobile-canvas-popover #minimap-svg { height: calc(100% - 14px); }
+  .mobile-canvas-popover .view-switch { display: inline-flex; flex-wrap: wrap; border: 0; background: transparent; padding: 0; }
+  .mobile-canvas-popover .view-option { min-height: 34px; padding: 7px 11px; }
+  .mobile-canvas-popover .mobile-mode-switch { display: flex; padding: 3px; border-radius: 10px; background: rgba(17,24,39,.06); }
+  .mobile-canvas-popover .mobile-mode-switch button {
+    border: 0; border-radius: 8px; padding: 7px 12px;
+    background: transparent; color: var(--quiz-faint); font-size: 12px; font-weight: 600;
+  }
+  .mobile-canvas-popover .mobile-mode-switch button.is-active { background: #111827; color: #fff; }
+  .mobile-canvas-popover .bulk-visibility-controls { gap: 12px; padding-top: 8px !important; border-top: 1px solid var(--quiz-line) !important; }
+  .mobile-canvas-popover .bulk-visibility-controls .text-button { font-size: 12px; padding: 0; }
+
+  /* 右下角画布操作条：横向可滚动，紧凑项收进头部菜单。
+     画布已内缩 10px 边距，因此 bottom:68px ≈ 屏幕底部 78px，刚好悬在收起抽屉上方。 */
+  .canvas-br {
+    right: 10px; bottom: 68px;
+    max-width: calc(100vw - 42px);
+    overflow-x: auto;
+    scrollbar-width: none; -ms-overflow-style: none;
+    white-space: nowrap;
+  }
+  .canvas-br::-webkit-scrollbar { display: none; }
+  .canvas-br > * { flex: 0 0 auto; }
+  .mobile-canvas-orient { display: inline-flex; }
+  #compact-layout-button, #orientation-toggle-button { display: none; }
+
+  /* 只收敛画布内的「直接子级」全部隐藏（防与模式切换重叠）；
+     移进右上角弹层的版本由 .mobile-canvas-popover 的重置规则负责展示，不受此条约束 */
+  .minimap { display: none; }
+  .graph-viewport > .bulk-visibility-controls { display: none !important; }
+
+  body.mobile-edit-mode .graph-viewport { outline: 2px dashed rgba(37,99,235,.35); outline-offset: -2px; }
+
+  /* ── 暗色适配 ── */
+  html[data-theme="dark"] .study-header,
+  html[data-theme="dark"] .mobile-more-menu,
+  html[data-theme="dark"] .mobile-workspace { background: #12171e; }
+  html[data-theme="dark"] .mobile-chevron { background: rgba(255,255,255,.08); }
+  html[data-theme="dark"] .mobile-chevron::before { border-color: var(--quiz-muted); }
+  html[data-theme="dark"] .mobile-canvas-expand,
+  html[data-theme="dark"] .mobile-canvas-popover { background: rgba(18,23,30,.96); border-color: rgba(226,232,240,.14); }
+  html[data-theme="dark"] .mobile-canvas-popover .mobile-mode-switch { background: rgba(255,255,255,.07); }
+  html[data-theme="dark"] .mobile-canvas-popover .mobile-mode-switch button.is-active { background: #edf2f7; color: #111827; }
+  html[data-theme="dark"] .mobile-more-menu button:active { background: rgba(109,151,255,.16); }
+}
+
 html[data-theme="dark"] {
   --quiz-bg: #0b0e13;
   --quiz-surface: #12171e;
@@ -685,10 +1088,8 @@ html[data-theme="dark"] .graph-edge.question { stroke: #d9e1ea; }
 html[data-theme="dark"] .graph-edge.followup { stroke: var(--quiz-followup); }
 html[data-theme="dark"] .graph-edge.check { stroke: var(--quiz-check); }
 html[data-theme="dark"] .graph-edge.custom { stroke: var(--quiz-custom); }
-/* 问答对分界线在暗色下也用低调灰，不随主题黑白走 */
-html[data-theme="dark"] .graph-edge.qa-divider-line { stroke: #8b949e; opacity: .55; }
 html[data-theme="dark"] .node-card { background: rgba(18,23,30,.98); }
-html[data-theme="dark"] .graph-node.user .node-card { border-color: rgba(226,232,240,.16); background: var(--quiz-user); }
+html[data-theme="dark"] .graph-node.user > .node-card { border-color: rgba(226,232,240,.16); background: var(--quiz-user); }
 html[data-theme="dark"] .graph-node.is-background .node-card { border-color: rgba(226,232,240,.09); }
 html[data-theme="dark"] .node-actions { border-color: rgba(226,232,240,.08); background: linear-gradient(180deg, rgba(255,255,255,.018), rgba(255,255,255,.045)); }
 html[data-theme="dark"] .branch-slots { border-color: rgba(226,232,240,.16); background: rgba(18,23,30,.96); box-shadow: 0 24px 62px rgba(0,0,0,.52); }
@@ -1706,4 +2107,39 @@ html[data-theme="dark"] .detail-branch-line { stroke: rgba(226,232,240,.22); }
 .graph-node.is-verified .node-branch::after {
   content: "已验收"; margin-left: 6px; padding: 1px 6px; border-radius: 999px;
   font-size: 10px; line-height: 1.5; color: #fff; background: var(--quiz-check, #22c55e);
+}
+
+/* 三问默认毛玻璃覆盖（不咄咄逼人），悬浮浮现；内容包进 wrap 供遮罩 */
+.detail-questions-wrap,
+.decon-questions-wrap {
+  position: relative;
+}
+
+/* 毛玻璃遮罩层：默认覆盖三个问题，hover 时淡出，触屏点击切换 */
+.detail-questions-wrap::after,
+.decon-questions-wrap::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background: rgba(255,255,255,.55);
+  backdrop-filter: blur(7px) saturate(1.2);
+  -webkit-backdrop-filter: blur(7px) saturate(1.2);
+  border-radius: 12px;
+  pointer-events: none;
+  transition: opacity 0.28s ease;
+}
+
+.detail-questions-wrap:hover::after,
+.decon-questions-wrap:hover::after,
+.detail-questions-wrap.is-revealed::after,
+.decon-questions-wrap.is-revealed::after {
+  opacity: 0;
+}
+
+html[data-theme="dark"] .detail-questions-wrap::after,
+html[data-theme="dark"] .decon-questions-wrap::after {
+  background: rgba(18,23,30,.65);
+  backdrop-filter: blur(7px) saturate(1.2);
+  -webkit-backdrop-filter: blur(7px) saturate(1.2);
 }

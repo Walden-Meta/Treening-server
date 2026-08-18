@@ -6,7 +6,7 @@
 <title>Treening · 配置</title>
 <link rel="icon" type="image/png" href="/static/img/logo.png">
 <script src="/static/js/theme.js?v=20260807-08"></script>
-<link rel="stylesheet" href="/static/css/tree.css?v=20260812-2">
+<link rel="stylesheet" href="/static/css/tree.css?v=20260817-14">
 <style>
   .admin-shell { max-width: 860px; margin: 0 auto; padding: 28px 20px 60px; }
   .admin-card { border: 1px solid var(--quiz-line); border-radius: 14px; padding: 18px 20px; margin-bottom: 18px; }
@@ -233,6 +233,13 @@
       <div>
         <label for="layout-node-height">卡片默认高</label>
         <input id="layout-node-height" type="number" min="90" max="1200" step="1" inputmode="numeric">
+      </div>
+      <div>
+        <label for="layout-orientation">树图方向</label>
+        <select id="layout-orientation">
+          <option value="vertical">自上而下（纵向生长）</option>
+          <option value="horizontal">横向河流（问答对保持纵向，分支向右）</option>
+        </select>
       </div>
     </div>
     <p class="form-error" id="layout-prefs-error" role="alert"></p>

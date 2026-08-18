@@ -20,6 +20,13 @@ from typing import Any
 from flask import Blueprint, current_app, jsonify, request, send_file, session
 
 from ..config import config, layout_prefs_for
+from ..example_trees import (
+    EXAMPLE_BY_ID,
+    EXAMPLE_TREES,
+    tree_node_count,
+    tree_root_question,
+)
+
 from ..persona_presets import (
     BUILTIN_PERSONA_KEYS,
     VALID_PERSONA_KEYS,
@@ -476,6 +483,57 @@ def get_persona_presets():
     return jsonify({"presets": presets})
 
 
+def _persona_name(key: str) -> str:
+    """人设 key → 展示名（空 = 春宁默认）。"""
+    if not key:
+        return "春宁"
+    for preset in persona_presets():
+        if preset["id"] == key:
+            return preset["name"]
+    return "自定义人设"
+
+
+@api_bp.route("/examples", methods=["GET"])
+def list_examples():
+    """示例树清单（元信息，不含节点正文）。
+
+    桌面首启已把示例树种进「学习轨迹」，此接口供未来「恢复示例」等
+    入口复用；前端当前不调用。
+    """
+    examples = []
+    for ex in EXAMPLE_TREES:
+        examples.append({
+            "id": ex["id"],
+            "title": ex["title"],
+            "description": ex["description"],
+            "persona": ex.get("persona", ""),
+            "persona_name": _persona_name(ex.get("persona", "")),
+            "root_question": tree_root_question(ex["nodes"]),
+            "node_count": tree_node_count(ex["nodes"]),
+        })
+    return jsonify({"ok": True, "examples": examples})
+
+
+@api_bp.route("/examples/<example_id>", methods=["POST"])
+def instantiate_example(example_id: str):
+    """把一棵示例树复制进当前用户自己的主题列表并设为当前主题。
+
+    纯本地操作（静态内容，不调用模型、不消耗配额）；可重复复制，
+    每份独立，可删可改。
+    """
+    ex = EXAMPLE_BY_ID.get(example_id)
+    if not ex:
+        return jsonify({"error": "示例树不存在", "code": "example_not_found"}), 404
+    user_id = _identity()
+    store = _store()
+    quiz_session = store.create_session(
+        user_id, title=ex["title"], persona=ex.get("persona", ""),
+    )
+    store.plant_example_tree(quiz_session["id"], user_id, ex["nodes"], tag=ex["id"])
+    session["tree_session_id"] = quiz_session["id"]
+    return jsonify({"ok": True, **_session_payload(quiz_session["id"], user_id)}), 201
+
+
 @api_bp.route("/sessions", methods=["GET"])
 def list_sessions():
     include_archived = request.args.get("include_archived", "0").lower() in {"1", "true", "yes"}
@@ -890,6 +948,13 @@ def export_session(session_id: str):
     fmt = request.args.get("format", "md").lower()
     scope = request.args.get("scope", "tree").lower()
     node_id = request.args.get("node_id") or None
+    # Obsidian vault 画布方向：?layout=vertical|horizontal 显式指定；缺省跟随用户
+    # 当前布局偏好（学习空间横向时导出的 canvas 也横向，所见即所得）。
+    layout = request.args.get("layout") or ""
+    if layout not in ("vertical", "horizontal"):
+        user_cfg = store.get_user_config(user_id) or {}
+        stored = user_cfg.get("layout_prefs") or {}
+        layout = stored.get("orientation") or "vertical"
     try:
         content, mimetype, extension = render_export(
             quiz_session,
@@ -897,6 +962,7 @@ def export_session(session_id: str):
             fmt,
             scope,
             node_id,
+            layout,
         )
     except ValueError as exc:
         return jsonify({"error": str(exc), "code": "tree_export_invalid"}), 400

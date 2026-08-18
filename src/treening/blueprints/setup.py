@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 from flask import Blueprint, current_app, jsonify, request, session
 
 from ..config import (
-    LAYOUT_PREFS_DEFAULTS,
+    LAYOUT_ORIENTATIONS,
     LAYOUT_PREFS_RANGES,
     config,
     layout_prefs_for,
@@ -325,8 +325,9 @@ def save_deconstruction():
 def save_layout_prefs():
     """保存当前登录用户的画布布局偏好（按用户隔离，全局作用于所有主题）。
 
-    只接受 qa_gap / branch_gap / node_width / node_height 四个数值字段；
-    传入的字段做范围夹取后写入，缺省字段保持既有值。保存后前端重排立即生效。
+    只接受 qa_gap / branch_gap / node_width / node_height 四个数值字段
+    + orientation（vertical / horizontal）方向字段；
+    数值字段做范围夹取后写入，缺省字段保持既有值。保存后前端重排立即生效。
     """
     user = _current_user()
     if not user:
@@ -336,22 +337,31 @@ def save_layout_prefs():
         return jsonify({"ok": False, "error": "配置格式不正确"}), 400
     current = _store().get_user_config(user["id"]) or {}
     merged = dict(current.get("layout_prefs") or {})
-    for key in LAYOUT_PREFS_DEFAULTS:
-        if key not in data["layout_prefs"]:
+    incoming = data["layout_prefs"]
+    for key in LAYOUT_PREFS_RANGES:
+        if key not in incoming:
             continue  # 缺省键保持既有值
         try:
-            value = float(data["layout_prefs"][key])
+            value = float(incoming[key])
         except (TypeError, ValueError):
             return jsonify({"ok": False, "error": f"「{key}」需为数值"}), 400
         low, high = LAYOUT_PREFS_RANGES[key]
         merged[key] = max(low, min(high, value))
+    # orientation 是非数值字符串字段：只认 vertical / horizontal
+    if "orientation" in incoming:
+        if incoming["orientation"] not in LAYOUT_ORIENTATIONS:
+            return jsonify({"ok": False, "error": "「orientation」取值不合法"}), 400
+        merged["orientation"] = incoming["orientation"]
     if not merged:
         return jsonify({"ok": False, "error": "没有可保存的布局参数"}), 400
     old_effective = layout_prefs_for(current)
     new_effective = layout_prefs_for({**current, "layout_prefs": merged})
-    changed = any(
-        abs(old_effective[k] - new_effective[k]) > 0.01
-        for k in LAYOUT_PREFS_DEFAULTS
+    changed = (
+        old_effective.get("orientation") != new_effective.get("orientation")
+        or any(
+            abs(float(old_effective[k]) - float(new_effective[k])) > 0.01
+            for k in LAYOUT_PREFS_RANGES
+        )
     )
     _store().save_user_config(user["id"], layout_prefs=merged)
     if changed:
